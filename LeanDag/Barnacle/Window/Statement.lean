@@ -1,16 +1,14 @@
 import LeanDag.Barnacle.Model.Window
-
 /-!
 # BN2 — the window is agreed
 
 The paper's Window Agreement lemma (`barnacle.md` §6): two honest
-validators that commit the anchor compute the same window. In this
-development the window a validator measures on is the anchor's causal
-history, and the claim is that this history is *determined by the
-anchor*: whichever view holds the anchor holds its whole history — A2,
-`BaseRule.Laws.view_complete` — so restricting the history to the
-validator's own view changes nothing, and two validators restricting it
-to their two views obtain one set.
+validators that commit the anchor compute the same window. The window a
+validator measures on is the anchor's causal history, determined by the
+anchor alone — whichever view holds the anchor holds its whole history,
+by A2 (`DagRule.viewComplete`) — so restricting it to two different
+views yields one set. A field of the carrier rather than a law, so this
+holds of every rule.
 
 * **BN2a, the history is in view** — a view holding `A` holds
   `historyFrom (block U) A`.
@@ -44,10 +42,13 @@ def WindowAgreement (R : BaseRule Validator BlockId Payload) : Prop :=
     A ∈ R.viewIds V₁ → A ∈ R.viewIds V₂ →
     historyFrom (R.block U) A ∩ R.viewIds V₁ = historyFrom (R.block U) A ∩ R.viewIds V₂
 
-/-- The window is agreed, for every base rule satisfying the laws. -/
+/-- **The window is agreed, for every base rule** — no laws and no
+properties: closure is a field of the carrier
+(`Properties.DagRule.viewComplete`), which every view type already
+carries. -/
 def Statement : Prop :=
   ∀ (Validator BlockId Payload : Type) [Fintype Validator] [DecidableEq Validator]
-    [DecidableEq BlockId] (R : BaseRule Validator BlockId Payload), R.Laws →
+    [DecidableEq BlockId] (R : BaseRule Validator BlockId Payload),
     HistoryInView R ∧ WindowAgreement R
 
 end Window

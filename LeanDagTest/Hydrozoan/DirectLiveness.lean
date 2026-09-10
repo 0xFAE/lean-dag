@@ -1,7 +1,6 @@
 import LeanDag.Hydrozoan.DirectLiveness.Proof
 import LeanDagTest.Hydrozoan.Liveness
 import LeanDagTest.Hydrozoan.DirectRules
-
 /-!
 # Witness: liveness fires
 
@@ -27,15 +26,13 @@ namespace Hydrozoan
 
 open LeanDag LeanDag.Hydrozoan
 
-set_option maxRecDepth 8192
-
 -- ## Slow path on U6
 
 -- Slot 0's candidate is the round-0 block of correct leader 2.
 example : IsLeaderBlock U6 0 0 := by decide
 
 -- Every round-2 block certifies it; the slot slow-commits.
-example : certificates U6 0 0 = {10, 11, 12, 13, 14} := by decide
+example : LeanDag.Hydrozoan.certificates U6 0 0 = {10, 11, 12, 13, 14} := by decide
 example : SlowCommit U6 0 0 := by decide
 
 -- The fast path is out of reach: only the five correct replicas voted.
@@ -44,7 +41,7 @@ example : ¬ FastCommit U6 0 0 := by decide
 
 -- The harvest form: Decided at the eventual view, via the slow route.
 example : Decided U6 (View.full U6) 0 (some 0) :=
-  Decided.directSlow (by decide) (by decide)
+  Decided.directCommit (by decide) (Or.inr (by decide))
 
 -- End-to-end: the headline theorem applied to U6 with every hypothesis
 -- discharged concretely (T = Correct, R = 0, k = 0) — the mechanical
@@ -56,12 +53,13 @@ example : ∃ L, IsLeaderBlock U6 0 L ∧ SlowCommit U6 L 0 ∧
   DirectLiveness.holds (Fin 7) (Fin 15) U6 (Correct : Finset (Fin 7)) 0 0
     (by decide) (by decide) u6_synchronised (by decide) (by decide)
     (by decide) (by decide) (by decide)
+    (View.full U6) (View.coversUpto_full U6 _)
 
 -- ## Fast path at low faults (Fin 4, f = 0, c = 1, k = 1)
 
 /-- The low-fault configuration: no Byzantine replica, one crashed —
 one actual fault, equal to the fast allowance p = 1. -/
-instance fourReplicas : Faults (Fin 4) where
+instance fourReplicas : LeanDag.Hydrozoan.Faults (Fin 4) where
   f := 0
   c := 1
   k := 1
@@ -92,16 +90,16 @@ below. -/
 def lk7 : Fin 9 → Block (Fin 4) (Fin 9) := fun i =>
   if h : (i : ℕ) < 3 then
     { round := 0,
-      author := ⟨if (i : ℕ) = 0 then 0 else (i : ℕ) + 1, by split <;> omega⟩,
-      parents := ∅ }
+      creator := ⟨if (i : ℕ) = 0 then 0 else (i : ℕ) + 1, by split <;> omega⟩,
+      refs := ∅ , payload := () }
   else if h : (i : ℕ) < 6 then
     { round := 1,
-      author := ⟨if (i : ℕ) = 3 then 0 else (i : ℕ) - 2, by split <;> omega⟩,
-      parents := {0, 1, 2} }
+      creator := ⟨if (i : ℕ) = 3 then 0 else (i : ℕ) - 2, by split <;> omega⟩,
+      refs := {0, 1, 2} , payload := () }
   else
     { round := 2,
-      author := ⟨if (i : ℕ) = 6 then 0 else (i : ℕ) - 5, by split <;> omega⟩,
-      parents := {3, 4, 5} }
+      creator := ⟨if (i : ℕ) = 6 then 0 else (i : ℕ) - 5, by split <;> omega⟩,
+      refs := {3, 4, 5} , payload := () }
 
 /-- The low-fault universe. -/
 def U7 : BlockUniverse (Fin 4) (Fin 9) where
@@ -113,8 +111,8 @@ def U7 : BlockUniverse (Fin 4) (Fin 9) where
 
 -- Both rounds are fully populated by the correct replicas, and the
 -- universe is synchronised from round 0.
-example : Populated U7 0 ∧ Populated U7 1 ∧ Populated U7 2 := by decide
-theorem u7_synchronised : Synchronised U7 0 := by
+example : LeanDag.Hydrozoan.Populated U7 0 ∧ LeanDag.Hydrozoan.Populated U7 1 ∧ LeanDag.Hydrozoan.Populated U7 2 := by decide
+theorem u7_synchronised : LeanDag.Hydrozoan.Synchronised U7 0 := by
   intro n hn b hb hbr hbc a ha har hac
   have hmax : ∀ c : Fin 9, (U7.block c).round ≤ 2 := by decide
   have hb2 := hmax b
@@ -142,17 +140,17 @@ example : ∃ L, IsLeaderBlock U7 0 L ∧ FastCommit U7 L 0 :=
 
 -- The performance pair harvested as Decided verdicts at low faults.
 example : Decided U7 (View.full U7) 0 (some 0) :=
-  Decided.directFast (by decide) (by decide)
+  Decided.directCommit (by decide) (Or.inl (by decide))
 example : Decided U7 (View.full U7) 1 none :=
   Decided.directSkip (by decide)
 
 -- ## Direct skip at low faults: the other half of the opportunistic
 -- pair. Slot 1's leader is the crashed replica 1 — no candidate exists,
--- every round-2 block blames vacuously, and the three correct blamers
+-- every round-2 block slotBlames vacuously, and the three correct blamers
 -- meet q_fast exactly.
-example : Slots.leader (Replica := Fin 4) 1 = 1 := by decide
+example : Slots.leader (Validator := Fin 4) 1 = 1 := by decide
 example : ∀ L : Fin 9, ¬ IsLeaderBlock U7 1 L := by decide
-example : blames U7 1 = {0, 2, 3} := by decide
+example : slotBlames U7 1 = {0, 2, 3} := by decide
 example : SkippedLeader U7 1 := by decide
 
 -- End-to-end: skipLatency applied with every hypothesis discharged.

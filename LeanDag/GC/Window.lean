@@ -1,28 +1,14 @@
 import LeanDag.GC.Chop
 import LeanDag.DoS.Novelty
-
 /-!
 # The window: storage and liveness above the horizon
 
-`garbage.md` §5 — the induced delivery, the windowed budget, and the
-bounded-storage headline:
-
-* `chopD` — a `Delivery` for `U` induces one for `chop U G` by shifting
-  rounds; nothing below the cut is ever consulted.
-* **G14** (`viewUpto_chopD`) — the store correspondence: pruning a store
-  below `G` *is* the truncated universe's store,
-  `viewUpto (chopD D G) v m = viewUpto D v (G+m) ∩ [G, ∞)`.
-* **G13** (`history_chop_anti`, `novelty_chop_anti`) — windowed novelty is
-  monotone under cut-advance: pruning only cheapens blocks. Without this
-  the budget would contradict GC (`garbage.md` §3, Bends #1).
-* Budget transfer (`byzBudget_chopD`, `refsAccepted_chopD`) — the
-  enforceable hypotheses descend to the truncation.
-* **G5** (`deliversQuorum_chopD`, `live_chopD`, `populated_chop`) —
-  liveness transfers: the truncated universe never stalls above the cut.
-* **G6** (`card_retained_le`) — **the headline**: a validator whose
-  horizon trails its round by at most `Λ` retains a **constant** number
-  of blocks, independent of how long the system has run. The DoS story
-  ended at "linear forever"; this ends at "constant, at lag `Λ`".
+`garbage.md` §5. `chopD` induces a delivery for `chop U G` by shifting
+rounds; the truncated store agrees with pruning a store below `G`
+(G14); windowed novelty only shrinks as the cut advances (G13), so no
+deferral decision ever flips the wrong way; and a validator whose
+horizon trails its round by at most `Λ` retains a constant number of
+blocks independent of runtime (G6, `card_retained_le`).
 -/
 
 namespace LeanDag
@@ -74,26 +60,26 @@ def chopD (D : Delivery U) (G : ℕ) : Delivery (chop U G) where
     intro v m i hi
     obtain ⟨h1, h2⟩ := D.held_spec v (G + m) i hi
     refine ⟨mem_chop_ids.mpr ⟨h1, by omega⟩, ?_⟩
-    rw [chop_block_eq, chopBlock_round]
+    rw [chop_block, chopBlk_round]
     omega
   accepted v m := D.accepted v (G + m)
   accepted_sub v m := D.accepted_sub v (G + m)
   accepted_inj := by
     intro v m i hi j hj hij
-    rw [chop_block_eq, chopBlock_creator, chopBlock_creator] at hij
+    rw [chop_block, chopBlk_creator, chopBlk_creator] at hij
     exact D.accepted_inj v (G + m) i hi j hj hij
   accepts_correct := by
     intro v hv m a ha hac
-    rw [chop_block_eq, chopBlock_creator] at hac
+    rw [chop_block, chopBlk_creator] at hac
     exact D.accepts_correct v hv (G + m) a ha hac
   includes := by
     intro v hv m b hb hbc hbr
     rw [mem_chop_ids] at hb
-    rw [chop_block_eq, chopBlock_creator] at hbc
-    rw [chop_block_eq, chopBlock_round] at hbr
+    rw [chop_block, chopBlk_creator] at hbc
+    rw [chop_block, chopBlk_round] at hbr
     have hsub := D.includes v hv (G + m) b hb.1 hbc (by omega)
     intro i hi
-    rw [chop_block_eq, chopBlock_refs_of_lt (by omega)]
+    rw [chop_block, chopBlk_refs_of_lt (by omega)]
     exact hsub hi
 
 /-- The truncated delivery accepts at round `m` what the original accepted at `G + m`. -/
@@ -156,7 +142,7 @@ theorem novelty_chop_anti {G' : ℕ} (hGG : G ≤ G') (hb : b ∈ (chop U G').id
 theorem byzBudget_chopD {κ : ℕ} (hbyz : ByzBudget D κ) :
     ByzBudget (chopD D G) κ := by
   intro v hv m b hb hbc
-  rw [chop_block_eq, chopBlock_creator] at hbc
+  rw [chop_block, chopBlk_creator] at hbc
   have h := hbyz v hv (G + m) b hb hbc
   refine le_trans (Finset.card_le_card ?_) h
   intro x hx
@@ -174,37 +160,32 @@ theorem refsAccepted_chopD (hra : RefsAccepted D) :
     RefsAccepted (chopD D G) := by
   intro w hw m b hb hbc hbr
   rw [mem_chop_ids] at hb
-  rw [chop_block_eq, chopBlock_creator] at hbc
-  rw [chop_block_eq, chopBlock_round] at hbr
+  rw [chop_block, chopBlk_creator] at hbc
+  rw [chop_block, chopBlk_round] at hbr
   have hsub := hra w hw (G + m) b hb.1 hbc (by omega)
   intro i hi
-  rw [chop_block_eq, chopBlock_refs_of_lt (by omega)] at hi
+  rw [chop_block, chopBlk_refs_of_lt (by omega)] at hi
   rw [chopD_accepted]
   exact hsub hi
 
 
-/-- **G5.** The truncated universe never stalls above the cut.
-
-Production upstream is all this needs: a round-`r` block of `chop U G` is
-a round-`(G+r)` block of `U`, so the statement is the hypothesis with its
-index shifted. It consumes no network assumption, and any of the three
-production routes discharges it. -/
+/-- **G5.** The truncated universe never stalls above the cut: a
+round-`r` block of `chop U G` is a round-`(G+r)` block of `U`, so this is
+the production hypothesis with its index shifted. -/
 theorem populated_chop {N : ℕ} (hpop : ∀ r ≤ N, Populated U r) (hG : G ≤ N) :
     ∀ r ≤ N - G, Populated (chop U G) r := by
   intro r hr v hv
   obtain ⟨b, hb, hbc, hbr⟩ := hpop (G + r) (by omega) v hv
   refine ⟨b, mem_chop_ids.mpr ⟨hb, by omega⟩, ?_, ?_⟩
-  · rw [chop_block_eq, chopBlock_creator]; exact hbc
-  · rw [chop_block_eq, chopBlock_round]; omega
+  · rw [chop_block, chopBlk_creator]; exact hbc
+  · rw [chop_block, chopBlk_round]; omega
 
 /-! ## G6 — bounded storage, the headline -/
 
-/-- **G6.** A validator whose horizon `G` trails its current round `t` by
-at most `Λ` retains a **constant** number of blocks — independent of `t`,
-hence of how long the system has run. B4 gave linear-forever; the horizon
-makes it constant-at-lag-`Λ`. Stated per time: the retained store is the
-truncated store (G14), which B4 bounds on `chop U G` at window depth
-`t − G ≤ Λ`. -/
+/-- **G6.** A validator whose horizon `G` trails its round `t` by at
+most `Λ` retains a constant number of blocks, independent of `t`: the
+retained store is the truncated store (G14), which B4 bounds at window
+depth `t − G ≤ Λ`. -/
 theorem card_retained_le {κ Λ t : ℕ} (hbyz : ByzBudget D κ)
     (hra : RefsAccepted D) (hv : v ∈ (Correct : Finset Validator))
     (hG : G ≤ t) (hΛ : t ≤ G + Λ) :

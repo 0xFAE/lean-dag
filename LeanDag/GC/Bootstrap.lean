@@ -1,49 +1,24 @@
 import LeanDag.GC.Window
 import LeanDag.GC.AttestedBase
 import LeanDag.GC.ChopDecided
-
+import LeanDag.Properties.Arcs.GC
+import LeanDag.Properties.Arcs.Record
 /-!
 # Bootstrap: the joiner's view, assembled and bounded
 
-`garbage.md` **G11**, **G6b**, **G7**, **G12** — the constructive half of
-the attested-base story. G10 said the base is sound and complete for the
-*correct* layer; this file says the base is complete for the **obtainable
-window** (Byzantine freight included), that the whole fetch is bounded by
-the G6 constant, that a correct validator's serving obligation is bounded
-by the same constant, and that the view a joiner assembles from base plus
-window is a bona-fide view of the truncation — so `decided_agree_chop`
-applies to it verbatim.
-
-* **G11** (`accepted_mem_base`): every round-`G` block a correct validator
-  has *accepted* into its window by `m` — whoever authored it — is in the
-  base attested at any `t ≥ m + 2`. The composition promised in the design:
-  acceptance puts the block in a correct store, the store rides into its
-  keeper's next block (`viewUpto_subset_history`), the backbone
-  (`mem_history_of_correct`) carries that block into every correct
-  round-`t` cone — and a cone *is* an attestation. This is why the
-  attestation round sits one lag above the window frontier: `t ≥ m + 2` is
-  one round for the carrier block, one for the backbone to pick it up.
-* **G6b** (`base_subset_retained`, `card_joinIds_le`): the joiner's entire
-  fetch — base and window both — comes out of **one correct peer's
-  retained store**, which G6 bounds by a constant. GC bounds sync cost,
-  not just storage.
-* **G7** (`history_chop_subset_retained`, `card_serve_le`): the windowed
-  relay obligation. What a correct author can be asked to serve for its
-  round-`(n+1)` block is that block's truncated cone — which is its own
-  retained store plus the block itself (`RefsAccepted` one step down, S10
-  the rest of the way). Same constant, plus one.
-* **G12** (`joinView`, `bootstrap_agree`): base ∪ window is downward
-  closed in the truncation — window references above the cut stay in the
-  window, and the references *into* the base layer are exactly the G11
-  blocks — so the assembly is a `View` of `chop U G`, and any decision
-  reached from it agrees with any full-history validator's.
+`garbage.md` **G11**, **G6b**, **G7**, **G12**: the base is complete for
+the whole obtainable window, not just the correct layer (G10 gave the
+correct case); the fetch and the serving obligation are both bounded by
+the G6 constant; and the view a joiner assembles from base plus window
+is a bona-fide view of the truncation, so `decided_agree_chop` applies
+to it directly.
 -/
 
 namespace LeanDag
 
-variable {Validator : Type*} [Fintype Validator] [DecidableEq Validator]
+variable {Validator : Type} [Fintype Validator] [DecidableEq Validator]
 variable [F : Faults Validator]
-variable {BlockId : Type*} [DecidableEq BlockId] {Payload : Type*}
+variable {BlockId : Type} [DecidableEq BlockId] {Payload : Type}
 variable {U : BlockUniverse Validator BlockId Payload}
 variable {D : Delivery U} {v w : Validator} {y : BlockId} {G : ℕ}
 
@@ -162,14 +137,14 @@ def joinView {R m t : ℕ} (hs : Synchronised U R)
       exact mem_chop_ids.mpr ⟨viewUpto_subset_ids hiv, by omega⟩
   complete := by
     intro i hi j hj
-    rw [chop_block_eq] at hj
+    rw [chop_block] at hj
     rcases Finset.mem_union.mp hi with h | h
     · obtain ⟨⟨hids, hround⟩, -⟩ := mem_base.mp h
-      rw [chopBlock_refs_of_le (by omega)] at hj
+      rw [chopBlk_refs_of_le (by omega)] at hj
       simp at hj
     · obtain ⟨hiv, hround⟩ := Finset.mem_filter.mp h
       have hiids : i ∈ U.ids := viewUpto_subset_ids hiv
-      rw [chopBlock_refs_of_lt hround] at hj
+      rw [chopBlk_refs_of_lt hround] at hj
       have hjv : j ∈ viewUpto D w m := mem_viewUpto_of_mem_refs hiv hj
       have hjr : (U.block j).round + 1 = (U.block i).round :=
         U.round_of_mem_refs hiids hj
@@ -185,20 +160,25 @@ theorem joinView_ids {R m t : ℕ} (hs : Synchronised U R)
       joinIds D w m t G := rfl
 
 /-- **G12 (bootstrap safety).** A joiner that assembles its view from the
-attested base and a correct peer's window, and runs Mysticeti on the
+attested base and a correct peer's window, and runs the rule on the
 truncation, never conflicts with any full-history validator on any slot.
 The composition *is* the proof: `joinView` is a view of `chop U G`, and
-`decided_agree_chop` never asked whose view it was. -/
-theorem bootstrap_agree [S : Slots Validator] {d : ℕ}
-    (hd : G ≤ S.slotRound d) {R m t : ℕ} (hs : Synchronised U R)
-    (hw : w ∈ (Correct : Finset Validator)) (hcar : Populated U (m + 1))
-    (hpop : Populated U t) (hR : R ≤ m + 1) (hmt : m + 2 ≤ t)
-    {V : View Validator BlockId Payload U} {k : ℕ} {jv fv : Option BlockId}
-    (hJ : Decided (S := S.chop G d hd) (chop U G)
-      (joinView (D := D) hs hw hcar hpop hR hmt) k jv)
-    (hV : Decided U V (d + k) fv) :
-    jv = fv :=
-  decided_agree_chop hd hJ hV
+cross-cut agreement never asked whose view it was. Stated for any rule
+whose universes are the block universes — the round trip of its carrier
+is what reads the joiner's view, built on the record, as the rule's. -/
+theorem bootstrap_agree {R : Properties.DagRule Validator BlockId Payload}
+    (c : R.OnRecord ValidWrt (Correct : Finset Validator)
+      (BlockRecord.Any (P := ValidWrt) (honest := (Correct : Finset Validator))))
+    (ha : Properties.Agree R) (hb : Properties.Banded R)
+    [S : Slots Validator] {d : ℕ} (hd : G ≤ S.slotRound d)
+    {R' m t : ℕ} (hs : Synchronised U R') (hw : w ∈ (Correct : Finset Validator))
+    (hcar : Populated U (m + 1)) (hpop : Populated U t) (hR : R' ≤ m + 1) (hmt : m + 2 ≤ t)
+    {V : R.View (c.ofRec U True.intro)} {k : ℕ} {jv fv : Option BlockId}
+    (hJ : R.Decided (S.chop G d hd)
+      (c.chop_ofRec U True.intro ▸
+        c.ofView (h := True.intro) (joinView (D := D) (G := G) hs hw hcar hpop hR hmt)) k jv)
+    (hV : R.Decided S V (d + k) fv) : jv = fv :=
+  c.decided_agree_chop ha hb hd hJ hV
 
 /-! ## G7 — the windowed relay obligation -/
 

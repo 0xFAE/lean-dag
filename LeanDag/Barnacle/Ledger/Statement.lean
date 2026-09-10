@@ -1,20 +1,16 @@
+import LeanDag.Barnacle.Helpers.DagRule
 import LeanDag.Barnacle.Model.Run
-
 /-!
 # BN5 — the ledger
 
 The paper's Safety theorem in the form this development states it
-(`barnacle.md` §6): the committed sequence read from any two runs
-is one list as far as both reach (Agreement, Total Order), it only grows
-(Total Order), and a block appears in it at most once (Integrity).
-Stated of partial runs, the only runs there are (`barnacle.md`
-§5): the ledger of a run of height `K` is defined through configuration
-`K − 1`.
-
-Integrity rests on the law `candidates` — a committed block is a
-candidate of its slot, the right round and author: two slots of one
-range holding the same block share a round and a leader and are one
-slot (`Slots.keyed`), and two ranges hold blocks of disjoint rounds.
+(`barnacle.md` §6): the committed sequence read from any two runs is one
+list as far as both reach (Agreement, Total Order), it only grows (Total
+Order), and a block appears in it at most once (Integrity). Stated of
+partial runs, the only runs there are (`barnacle.md` §5). Integrity
+rests on `candidates`: a committed block is a candidate of its slot, so
+two slots of one range holding it are one slot (`Slots.keyed`), and two
+ranges hold blocks of disjoint rounds.
 
 * **BN5a, the ledger is agreed** — range by range, and as one list, as
   far as both runs reach.
@@ -34,6 +30,12 @@ namespace Ledger
 
 variable {Validator : Type} [Fintype Validator] [DecidableEq Validator]
   {BlockId : Type} [DecidableEq BlockId] {Payload : Type}
+
+/-! ## What this asks of the rule
+
+`Agree`, through the agreement theorem, and `CommitsCandidate`, to
+identify a committed block's slot — both properties, in place of the
+seven-clause `R.Laws`. -/
 
 /-- **BN5a, the ledger is agreed**: two runs over one universe read the
 same committed sequence from every range both have closed, hence the
@@ -75,9 +77,10 @@ def LedgerNodup (R : BaseRule Validator BlockId Payload) (P : Params)
 base rule satisfying the laws and every update rule. -/
 def Statement : Prop :=
   ∀ (Validator BlockId Payload : Type) [Fintype Validator] [DecidableEq Validator]
-    [DecidableEq BlockId] (R : BaseRule Validator BlockId Payload), R.Laws →
+    [DecidableEq BlockId] (R : BaseRule Validator BlockId Payload),
+    Properties.Agree R.toDagRule → Properties.CommitsCandidate R.toDagRule →
     ∀ (P : Params) (getLeader : ℕ → Validator) (hk : Keyed getLeader P.maxLeaders)
-      (upd : UpdateRule R),
+      (upd : UpdateRule R), Anchored R upd →
       LedgerAgreement R P getLeader hk upd ∧ LedgerPrefix R P getLeader hk upd ∧
         LedgerNodup R P getLeader hk upd
 

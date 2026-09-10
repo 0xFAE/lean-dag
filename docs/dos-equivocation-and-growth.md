@@ -196,8 +196,8 @@ each validator can enforce alone, without ever knowing who is Byzantine.
 
 `liveness.md` §4.2 fixes `U` as *every block some correct validator ever
 held* — not every block anyone ever wrote. So `|U.ids|` is the storage burden
-imposed on the correct population, and a block revealed to nobody costs
-nothing. Two quantities measure the burden:
+imposed on the correct population, and a block revealed to nobody adds
+nothing to it. Two quantities measure the burden:
 
 - **View size.** `V.ids` is a `Finset`; `|V.ids|` is what a validator
   stores. Views are downward closed, so a view with maximum round `r` spans
@@ -340,7 +340,7 @@ exactly the authors' accepted sets. No theorem assumes a Byzantine-authored
 block is ever delivered to anyone: Byzantine delivery is entirely the
 adversary's choice, and a block delivered to nobody is not in `U` and
 imposes no burden (§1). Both extremes are witnessed: `ugrowHonest`
-(`LeanDagTest/Partial.lean`) discharges the liveness definitions with the
+(`LeanDagTest/Mysticeti/Partial.lean`) discharges the liveness definitions with the
 Byzantine validator publishing nothing at all, and `Dtwin` (§8) has
 Byzantine blocks reaching some correct validators and not others. The
 consequence for relaying — a correct validator's outbound duty is its own
@@ -739,8 +739,7 @@ and the usual three axioms. Naming conventions: `card_X_le…` bounds
 `|X|`; `X_of_Y` derives `X` from the characteristic hypothesis `Y`; and a
 **primed** name is the post-`R` variant of its unprimed, asynchronous
 form — `card_viewUpto_le` / `card_viewUpto_le'`,
-`no_stall_and_card_viewUpto_le` / `'`, `dos_resistance` / `'` all pair
-this way.
+`dos_resistance` / `'` pair this way.
 
 | | | | |
 |---|---|---|---|
@@ -799,11 +798,9 @@ this way.
 | **C3′** | the gap collapses: `≤ f·κ`, constant after `R` | `viewUpto_subset_history`, `card_viewGap_succ_le` | `Novelty` |
 | **C3″** | the correct clause is derived: `Κ = f·κ + 1` | `ByzBudget`, `card_novelty_le_of_byzBudget` | `Novelty` |
 | **B3′** | linear storage from the enforceable rule alone | `RefsAccepted`, `card_viewUpto_le'` | `Novelty` |
-| — | the capstone, post-`R` incremental: liveness ∧ storage | `no_stall_and_card_viewUpto_le'` | `Novelty` |
 | **B4** | unconditional linear storage: no synchrony, from round 0 | `byzPool`, `card_byzPool_le`, `card_viewUpto_le` | `Novelty` |
-| — | the capstone, asynchronous | `no_stall_and_card_viewUpto_le` | `Novelty` |
 | — | the sandwich converse: uniform at `f·κ+1` post-`R` | `uniform_of_byzBudget` | `Novelty` |
-| — | **the headline**: DoS resistance from enforceable conditions only | `dos_resistance`, `dos_resistance'` | `Novelty` |
+| — | **the headline**: DoS resistance, liveness ∧ storage from enforceable conditions only | `dos_resistance`, `dos_resistance'` | `Novelty` |
 | — | exposure-complete ⇒ acceptances turn correct | `AllExposed`, `accepted_correct_of_allExposed` | `Composition` |
 | — | the pool freezes | `byzPool_succ_subset`, `byzPool_subset_of_allExposed` | `Composition` |
 | **B5** | after exposure the slope is the correct-production rate | `card_viewUpto_le_of_allExposed`, `…'` | `Composition` |

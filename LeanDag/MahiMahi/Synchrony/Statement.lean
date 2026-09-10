@@ -1,24 +1,13 @@
 import LeanDag.MahiMahi.Model.Unpredictable
-import LeanDag.Quantitative
-
+import LeanDag.Mysticeti.Quantitative
 /-!
 # Partial synchrony, recovered — statement
 
-The arc must remain usable by the partially synchronous development. Two
-claims (`mahi-mahi.md` §7):
-
-* **MM5a, `GoodOfSynchrony`** — under the core's coverage hypothesis
-  `SynchronisedOn` at a slot's round, a reliable leader's block is a
-  committed candidate: `S.leader k ∈ good U w k`. Coverage is needed at
-  **one** round only — the round above the proposal — where the core's
-  L4 needs it at two: once every reliable round-`(r+1)` block references
-  the candidate, every block two rounds up reaches it through its
-  reference quorum, and the wave does the rest;
-* **MM5b, `ClauseOfSynchrony`** — hence under synchrony from the start
-  and population through the horizon, the unpredictable-leader clause is
-  *derived* from the core's rated fairness `FairWithin`: the partially
-  synchronous route instantiates, with the clause as a theorem rather
-  than an assumption.
+Two claims keeping the arc usable under partial synchrony
+(`mahi-mahi.md` §7): MM5a derives a committed candidate from
+`SynchronisedOn` at one round only, where the core's L4 needs two; MM5b
+derives the unpredictable-leader clause itself from the core's
+`FairWithin` under synchrony and population through the horizon.
 
 Statements only; the proofs live in `Proof.lean`.
 -/
@@ -29,8 +18,8 @@ namespace MahiMahi
 
 namespace Synchrony
 
-variable {Validator : Type*} [Fintype Validator] [DecidableEq Validator]
-  [F : Faults Validator] {BlockId : Type*} [LinearOrder BlockId] {Payload : Type*}
+variable {Validator : Type} [Fintype Validator] [DecidableEq Validator]
+  [F : Faults Validator] {BlockId : Type} [LinearOrder BlockId] {Payload : Type}
   [S : Slots Validator]
 
 /-- **MM5a, a reliable leader is good under coverage at one round.** -/
@@ -45,7 +34,7 @@ def GoodOfSynchrony (U : BlockUniverse Validator BlockId Payload) (w : ℕ) : Pr
     SynchronisedOn U T R → R ≤ S.slotRound k →
     -- T populates the proposal round, the round above it, and the decision round
     PopulatedOn U T (S.slotRound k) → PopulatedOn U T (S.slotRound k + 1) →
-    PopulatedOn U T (decisionRound Validator w k) →
+    PopulatedOn U T ((mahiMahiAnchored Validator BlockId Payload w).decisionRound k) →
     -- the slot's leader is reliable
     S.leader k ∈ T →
     -- then the leader is a committed candidate of its round

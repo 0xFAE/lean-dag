@@ -1,5 +1,4 @@
 import LeanDag.Hydrozoan.Model.Faults
-
 /-!
 # Fault-model lemmas
 
@@ -12,7 +11,7 @@ namespace LeanDag
 
 namespace Hydrozoan
 
-variable {Replica : Type*} [Fintype Replica] [DecidableEq Replica] [F : Faults Replica]
+variable {Replica : Type*} [Fintype Replica] [DecidableEq Replica] [F : LeanDag.Hydrozoan.Faults Replica]
 
 /-- Membership in `Correct`, unfolded. -/
 @[simp]
@@ -25,6 +24,10 @@ theorem mem_correct {v : Replica} :
 theorem mem_nonByzantine {v : Replica} :
     v ∈ (NonByzantine : Finset Replica) ↔ v ∉ F.byzantine := by
   simp [NonByzantine]
+
+/-- The replicas outside `NonByzantine` are the Byzantine ones: at most `f`. -/
+theorem card_compl_nonByzantine_le : (NonByzantine : Finset Replica)ᶜ.card ≤ F.f := by
+  rw [NonByzantine, compl_compl]; exact F.card_byzantine
 
 /-- Every correct replica is non-Byzantine. -/
 theorem correct_subset_nonByzantine :

@@ -1,22 +1,14 @@
 import LeanDag.Hydrozoan.Model.Decided
-
+import LeanDag.Common.Ledger
 /-!
 # Prefix agreement — statement
 
 The output guarantee: replicas' committed sequences are consistent.
-`commitSeq` is the shape of the paper's `ExtendCommitSeq` result — the
-committed leaders in slot order, skipped slots dropped — and `ledger`
-applies a linearizer to every committed leader, the paper's
-`LinearizeSubDags` **abstracted to an arbitrary function**: determinism
-is the only property the results use, so the claims hold for any
-concrete traversal.
-
-Three claims: equal horizons give equal sequences; different horizons
-give a prefix (`<+:` is `List.IsPrefix`); and ledgers inherit prefix
-consistency for every linearizer. `DecidesBelow` requires a derivation
-for every slot below the horizon — an undecided slot has none — so the
-claims speak exactly where replicas have produced output, matching the
-no-conflicting-decision reading of slot agreement.
+`commitSeq` is the committed leaders in slot order, skips dropped;
+`ledger` applies a linearizer, abstracted to an arbitrary function since
+determinism is all the results use. Three claims: equal horizons give
+equal sequences, different horizons give a prefix, and ledgers inherit
+prefix consistency for every linearizer.
 -/
 
 namespace LeanDag
@@ -29,11 +21,6 @@ section Sequences
 
 variable {BlockId : Type*}
 
-/-- The committed leaders below slot `n`, in slot order, skips
-dropped — the output shape of the paper's `ExtendCommitSeq`. -/
-def commitSeq (g : ℕ → Option BlockId) (n : ℕ) : List BlockId :=
-  (List.range n).filterMap g
-
 /-- A ledger: every committed leader flattened by a linearizer — the
 paper's `LinearizeSubDags`, abstracted to an arbitrary function. -/
 def ledger (lin : BlockId → List BlockId) (g : ℕ → Option BlockId)
@@ -45,7 +32,7 @@ end Sequences
 section Claims
 
 variable {Replica BlockId : Type*} [Fintype Replica] [DecidableEq Replica]
-  [DecidableEq BlockId] [LinearOrder BlockId] [F : Faults Replica]
+  [DecidableEq BlockId] [LinearOrder BlockId] [F : LeanDag.Hydrozoan.Faults Replica]
   [S : Slots Replica]
 
 /-- `g` records a decided verdict for every slot below `n`, as judged
@@ -79,7 +66,7 @@ def LedgerPrefixConsistency (U : BlockUniverse Replica BlockId) : Prop :=
 order, and block universe the model admits. -/
 def Statement : Prop :=
   ∀ (Replica BlockId : Type) [Fintype Replica] [DecidableEq Replica]
-    [DecidableEq BlockId] [LinearOrder BlockId] [Faults Replica]
+    [DecidableEq BlockId] [LinearOrder BlockId] [LeanDag.Hydrozoan.Faults Replica]
     [Slots Replica] (U : BlockUniverse Replica BlockId),
     SeqAgreement U ∧ PrefixConsistency U ∧ LedgerPrefixConsistency U
 

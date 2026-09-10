@@ -1,6 +1,6 @@
+import LeanDag.Barnacle.Helpers.DagRule
 import LeanDag.Barnacle.Model.Live
 import LeanDag.Barnacle.Helpers.Schedule
-
 /-!
 # Progress helpers
 
@@ -44,17 +44,18 @@ def PartialRun.zero (R : BaseRule Validator BlockId Payload) (P : Params)
 
 open Classical in
 /-- **Configuration progress, with the bound on the new start.** -/
-theorem progress_exists (hR : R.Laws) (hupd : UpdBounded P upd) {c K Rnd N : ℕ}
-    (Rn : PartialRun R.toBaseRule P getLeader hk upd U (R.full U) K)
+theorem progress_exists (hR : Properties.Agree R.toBaseRule.toDagRule) (hupd : UpdBounded P upd) {c K Rnd N : ℕ}
+    {V : R.View U} (hcov : R.toBaseRule.CoversUpto U V N)
+    (Rn : PartialRun R.toBaseRule P getLeader hk upd U V K)
     (hlive : R.LiveOn (Sched getLeader hk (Rn.count K) (Rn.count_pos K) (Rn.count_le K)) c)
     (hgood : R.Good U Rnd N) (hRnd : Rnd ≤ Rn.start K + 1)
     (hN : Rn.start K + P.interval + 1 + 2 * c + R.waveLength ≤ N) :
-    ∃ Rn' : PartialRun R.toBaseRule P getLeader hk upd U (R.full U) (K + 1),
+    ∃ Rn' : PartialRun R.toBaseRule P getLeader hk upd U V (K + 1),
       Rn'.start (K + 1) ≤ Rn.start K + P.interval + 1 + c := by
-  obtain ⟨h1, h2⟩ := hlive U Rnd N hgood
+  obtain ⟨h1, h2⟩ := hlive U V Rnd N hgood hcov
   -- Clause 1 with the rounds read as quotients.
   have h1' : ∀ κ, Rnd ≤ κ / Rn.count K → κ / Rn.count K + c + R.waveLength ≤ N →
-      ∃ v, R.Decided (Rn.sched K) (R.full U) κ v := by
+      ∃ v, R.Decided (Rn.sched K) V κ v := by
     intro κ a b
     exact h1 κ (by simpa using a) (by simpa using b)
   -- The verdicts of the new range, chosen from clause 1; `none` off the good rounds.
@@ -62,7 +63,7 @@ theorem progress_exists (hR : R.Laws) (hupd : UpdBounded P upd) {c K Rnd N : ℕ
     if h : Rnd ≤ κ / Rn.count K ∧ κ / Rn.count K + c + R.waveLength ≤ N then
       Classical.choose (h1' κ h.1 h.2) else none
   have hv : ∀ κ, Rnd ≤ κ / Rn.count K → κ / Rn.count K + c + R.waveLength ≤ N →
-      R.Decided (Rn.sched K) (R.full U) κ (v κ) := by
+      R.Decided (Rn.sched K) V κ (v κ) := by
     intro κ a b
     simp only [v, dif_pos (And.intro a b)]
     exact Classical.choose_spec (h1' κ a b)
@@ -72,7 +73,7 @@ theorem progress_exists (hR : R.Laws) (hupd : UpdBounded P upd) {c K Rnd N : ℕ
   simp only [Sched_slotRound] at hκ₀ hκ₀'
   -- Its chosen verdict is that commit, by agreement.
   have hvκ₀ : v κ₀ = some L₀ :=
-    hR.agree _ _ _ κ₀ _ _ (hv κ₀ (by omega) (by omega)) hL₀
+    hR _ _ _ κ₀ _ _ (hv κ₀ (by omega) (by omega)) hL₀
   -- The anchor: the least committed slot past the threshold.
   have hex : ∃ κ, Rn.start K + P.interval < κ / Rn.count K ∧ ∃ L, v κ = some L :=
     ⟨κ₀, by omega, L₀, hvκ₀⟩
@@ -86,11 +87,11 @@ theorem progress_exists (hR : R.Laws) (hupd : UpdBounded P upd) {c K Rnd N : ℕ
   have ha_round : a / Rn.count K ≤ Rn.start K + P.interval + 1 + c :=
     le_trans (Nat.div_le_div_right ha_le) hκ₀'
   -- The next configuration, by the rule at the anchor block.
-  let next : ℕ × ℕ := (v a).elim (1, 0) (fun A => upd (Rn.count K) (Rn.backoff K) U A)
+  let next : ℕ × ℕ := (v a).elim (1, 0) (fun A => upd (Rn.count K) (Rn.backoff K) U V A)
   have hnext : 0 < next.1 ∧ next.1 ≤ P.maxLeaders := by
     obtain ⟨_, A, hA⟩ := ha_spec
     simp only [next, hA, Option.elim_some]
-    exact hupd _ _ _ _
+    exact hupd _ _ _ _ _
   refine ⟨{
     start := fun k => if k ≤ K then Rn.start k else a / Rn.count K
     count := fun k => if k ≤ K then Rn.count k else if k = K + 1 then next.1 else 1
@@ -182,40 +183,43 @@ theorem progress_exists (hR : R.Laws) (hupd : UpdBounded P upd) {c K Rnd N : ℕ
     simp only [hk1, if_false]
     exact ha_round
 
-theorem progress (hR : R.Laws) (hupd : UpdBounded P upd) {c K Rnd N : ℕ}
-    (Rn : PartialRun R.toBaseRule P getLeader hk upd U (R.full U) K)
+theorem progress (hR : Properties.Agree R.toBaseRule.toDagRule) (hupd : UpdBounded P upd) {c K Rnd N : ℕ}
+    {V : R.View U} (hcov : R.toBaseRule.CoversUpto U V N)
+    (Rn : PartialRun R.toBaseRule P getLeader hk upd U V K)
     (hlive : R.LiveOn (Sched getLeader hk (Rn.count K) (Rn.count_pos K) (Rn.count_le K)) c)
     (hgood : R.Good U Rnd N) (hRnd : Rnd ≤ Rn.start K + 1)
     (hN : Rn.start K + P.interval + 1 + 2 * c + R.waveLength ≤ N) :
-    Nonempty (PartialRun R.toBaseRule P getLeader hk upd U (R.full U) (K + 1)) :=
-  let ⟨Rn', _⟩ := progress_exists hR hupd Rn hlive hgood hRnd hN
+    Nonempty (PartialRun R.toBaseRule P getLeader hk upd U V (K + 1)) :=
+  let ⟨Rn', _⟩ := progress_exists hR hupd hcov Rn hlive hgood hRnd hN
   ⟨Rn'⟩
 
 /-- (D) -/
-theorem everyHeight_bound (hR : R.Laws) (hupd : UpdBounded P upd) {c : ℕ}
+theorem everyHeight_bound (hR : Properties.Agree R.toBaseRule.toDagRule) (hupd : UpdBounded P upd) {c : ℕ}
     (hlive : ∀ m (hm : 0 < m) (hmax : m ≤ P.maxLeaders),
       R.LiveOn (Sched getLeader hk m hm hmax) c)
-    {Rnd N : ℕ} (hgood : R.Good U Rnd N) (hRnd : Rnd ≤ 1) :
+    {Rnd N : ℕ} {V : R.View U} (hcov : R.toBaseRule.CoversUpto U V N)
+    (hgood : R.Good U Rnd N) (hRnd : Rnd ≤ 1) :
     ∀ K, horizon P R c K ≤ N →
-      ∃ Rn : PartialRun R.toBaseRule P getLeader hk upd U (R.full U) K,
+      ∃ Rn : PartialRun R.toBaseRule P getLeader hk upd U V K,
         Rn.start K ≤ K * (P.interval + 1 + c)
-  | 0, _ => ⟨PartialRun.zero _ P getLeader hk upd U (R.full U), Nat.zero_le _⟩
+  | 0, _ => ⟨PartialRun.zero _ P getLeader hk upd U V, Nat.zero_le _⟩
   | K + 1, hN => by
     have hN' : (K + 1) * (P.interval + 1 + c) + c + R.waveLength ≤ N := hN
     rw [Nat.succ_mul] at hN'
     have hhor : horizon P R c K ≤ N := by unfold horizon; omega
-    obtain ⟨Rn, hstart⟩ := everyHeight_bound hR hupd hlive hgood hRnd K hhor
-    obtain ⟨Rn', hstart'⟩ := progress_exists hR hupd Rn
+    obtain ⟨Rn, hstart⟩ := everyHeight_bound hR hupd hlive hcov hgood hRnd K hhor
+    obtain ⟨Rn', hstart'⟩ := progress_exists hR hupd hcov Rn
       (hlive (Rn.count K) (Rn.count_pos K) (Rn.count_le K)) hgood (by omega) (by omega)
     exact ⟨Rn', by rw [Nat.succ_mul]; omega⟩
 
-theorem everyHeight (hR : R.Laws) (hupd : UpdBounded P upd) {c : ℕ}
+theorem everyHeight (hR : Properties.Agree R.toBaseRule.toDagRule) (hupd : UpdBounded P upd) {c : ℕ}
     (hlive : ∀ m (hm : 0 < m) (hmax : m ≤ P.maxLeaders),
       R.LiveOn (Sched getLeader hk m hm hmax) c)
-    {Rnd N : ℕ} (hgood : R.Good U Rnd N) (hRnd : Rnd ≤ 1) (K : ℕ)
+    {Rnd N : ℕ} {V : R.View U} (hcov : R.toBaseRule.CoversUpto U V N)
+    (hgood : R.Good U Rnd N) (hRnd : Rnd ≤ 1) (K : ℕ)
     (hK : horizon P R c K ≤ N) :
-    Nonempty (PartialRun R.toBaseRule P getLeader hk upd U (R.full U) K) :=
-  let ⟨Rn, _⟩ := everyHeight_bound hR hupd hlive hgood hRnd K hK
+    Nonempty (PartialRun R.toBaseRule P getLeader hk upd U V K) :=
+  let ⟨Rn, _⟩ := everyHeight_bound hR hupd hlive hcov hgood hRnd K hK
   ⟨Rn⟩
 
 end Progress

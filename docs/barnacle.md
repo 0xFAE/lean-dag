@@ -17,9 +17,11 @@ paper (`\sysname` in the manuscript) — every few seconds,
 measure on the agreed DAG the fraction of leader slots the base protocol
 decided directly, and drive the number of leaders per round with an
 additive-increase, multiplicative-decrease rule — is safe and live over
-each of the three base protocols this development already formalises:
+each of the four base protocols this development already formalises:
 Mysticeti (report §3), Odontoceti, which the paper calls Blue Bottle
-(report §10), and Nemo-Nemo (report §15). Results carry **BN**-labels;
+(report §10), Nemo-Nemo (report §15), and Orcaella, the hybrid
+two-round rule at `n ≥ 5·fb + 3·fc + 1` (report §14; instantiated
+after the arc closed — §15). Results carry **BN**-labels;
 everything lives in `LeanDag/Barnacle/` under the statement/proof
 partition (§10), with `decide` witnesses in `LeanDagTest/Barnacle/`,
 consuming the core read-only.
@@ -55,20 +57,27 @@ was itself a function of verdicts.
 
 Three consequences shape the plan.
 
-- **Safety holds for any update rule.** The `(k+1)`-st count is a
-  function of the universe, the anchor block and the previous state; the
-  anchor is the least committed slot past the threshold in a schedule
-  both validators share; the verdicts of the range are agreed by the base
-  rule's own agreement theorem. So two validators agree on every
-  configuration and every verdict for **any** deterministic update, with
-  no synchrony or fairness hypothesis — the AIMD rule is one instance
-  (BN3).
+- **Safety holds for any update rule a validator can run.** An update
+  rule takes the validator's own view, and nothing then makes two of them
+  agree — a rule reading its view freely could hand two correct
+  validators different counts. `Anchored` is the condition that rules
+  that out: the step must not depend on which view computes it. It needs
+  no further hypothesis, because the window a rule measures on is the
+  anchor's causal
+  history, which BN2 shows every view holding the anchor holds whole and
+  restricts identically; the AIMD rule satisfies it by not reading the
+  view at all (BN7e). Given that, the `(k+1)`-st count is a function of
+  the anchor block and the previous state; the anchor is the least
+  committed slot past the threshold in a schedule both validators share;
+  and the verdicts of the range are agreed by the base rule's own
+  agreement theorem. So two validators agree on every configuration and
+  every verdict, with no synchrony or fairness hypothesis (BN3).
 - **Liveness is the existence of the configuration sequence.** Each
   range closes because the base rule decides every slot of a fixed
-  schedule on the full view; the next anchor exists because committed
-  slots recur; the sequence is built by recursion on `k` (BN8). What the
-  arc consumes from the base is exactly the paper's A4, stated as a
-  clause on a schedule (§7).
+  schedule on any view caught up to the horizon; the next anchor exists
+  because committed slots recur; the sequence is built by recursion on
+  `k` (BN8). What the arc consumes from the base is exactly the paper's
+  A4, stated as a clause on a schedule (§7).
 - **A4 is not automatic under multiple leaders.** With the paper's
   own rotation, `GetLeader(r + l)`, and `m ≥ 2` leaders, the run
   fairness the development's liveness route consumes (`FairRunOn`,
@@ -79,9 +88,9 @@ Three consequences shape the plan.
   new base-protocol theory.
 
 The arc is generic over the base protocol through an explicit interface
-(§2), instantiated three times (Phase 5); the paper's Lean appendix can
-then say, accurately, that everything is proved from A1–A4 and not from
-Mysticeti.
+(§2), instantiated four times (Phase 5, and §15's later Orcaella
+addition); the paper's Lean appendix can then say, accurately, that
+everything is proved from A1–A4 and not from Mysticeti.
 
 ### 0.1 Correspondence with the paper
 
@@ -126,44 +135,41 @@ range `k`, in slot order of `Sched m_k`.
 The arc never counts anything. What it needs of a base protocol is a
 decision relation parametric in the schedule, agreement across views for
 a fixed schedule, and — for the measurement — the direct-commit
-predicate. The three protocols differ in their universe and view types
+predicate. The four protocols differ in their universe and view types
 (Nemo has `Nemo.Universe` and `Nemo.View`; the Byzantine rules share
-`BlockUniverse` and `View`) and in their fault classes — Mysticeti needs
-`Faults`, Odontoceti `Faults5` and a linear order on ids, Nemo's safety
+`BlockUniverse` and `View`; Orcaella's universe is the subtype bundling
+`HonestNoEquiv`) and in their fault classes — Mysticeti needs
+`Faults`, Odontoceti `Faults5` and a linear order on ids, Orcaella
+`HybridFaults` with an admissible indirect threshold, Nemo's safety
 none at all — so the interface bundles the types and puts each rule's
 fault class on its instantiation, never on the interface
 (`Model/Rule.lean`):
 
 ```lean
 structure BaseRule (Validator : Type) [Fintype Validator] [DecidableEq Validator]
-    (BlockId : Type) [DecidableEq BlockId] (Payload : Type) where
-  Universe : Type
-  View : Universe → Type
-  block : Universe → BlockId → Block Validator BlockId Payload
-  ids : Universe → Finset BlockId
-  viewIds : ∀ {U : Universe}, View U → Finset BlockId
+    (BlockId : Type) [DecidableEq BlockId] (Payload : Type)
+    extends Properties.DagRule Validator BlockId Payload where
   full : ∀ U : Universe, View U
   historyView : ∀ (U : Universe) (A : BlockId), A ∈ ids U → View U
   waveLength : ℕ
   DirectCommitIn : ∀ {U : Universe}, View U → BlockId → ℕ → Prop
   decDirect : ∀ {U : Universe} (V : View U) (L : BlockId) (r : ℕ),
     Decidable (DirectCommitIn V L r)
-  Decided : Slots Validator → ∀ {U : Universe}, View U → ℕ → Option BlockId → Prop
 
 structure BaseRule.Laws (R : BaseRule Validator BlockId Payload) : Prop where
-  view_subset : ∀ {U : R.Universe} (V : R.View U), R.viewIds V ⊆ R.ids U
-  view_complete : ∀ {U : R.Universe} (V : R.View U),
-    ∀ i ∈ R.viewIds V, ∀ j ∈ (R.block U i).refs, j ∈ R.viewIds V
   full_ids : ∀ U, R.viewIds (R.full U) = R.ids U
   historyView_ids : ∀ U A (hA : A ∈ R.ids U),
     R.viewIds (R.historyView U A hA) = historyFrom (R.block U) A
-  agree : ∀ (S : Slots Validator) {U : R.Universe} (V₁ V₂ : R.View U) (k : ℕ)
-    (v₁ v₂ : Option BlockId), R.Decided S V₁ k v₁ → R.Decided S V₂ k v₂ → v₁ = v₂
-  decided_of_directCommitIn : ∀ (S : Slots Validator) {U : R.Universe} (V : R.View U)
-    (k : ℕ) (L : BlockId), R.IsLeaderBlock S U k L →
-    R.DirectCommitIn V L (S.slotRound k) → R.Decided S V k (some L)
+  agree : Properties.Agree R.toDagRule
+  commitsDirect : Properties.CommitsDirect R.toDagRule
+    (fun {U} V L r => R.DirectCommitIn V L r)
+  candidates : Properties.CommitsCandidate R.toDagRule
 ```
 
+`Universe`, `View`, `block`, `ids`, `viewIds`, `viewSound`,
+`viewComplete`, `causal` and `Decided` are `Properties.DagRule`'s own
+fields, common to every carrier of `docs/target-properties.md` and
+stated there rather than restated here (§12, target-properties.md G0).
 The interface is split into **data** and **laws**, so that the data —
 what the rule *is* — is proof-free and audited, and the laws — what it
 must satisfy — are a proposition each instantiation is proved to meet
@@ -171,14 +177,14 @@ as a result of the house shape: `Mysticeti/Statement.lean` defines the
 data and states `Laws mysticeti`, `Mysticeti/Proof.lean` proves it, and
 Phase 5 adds the same pair for Odontoceti and Nemo. Every generic
 theorem takes `(hR : R.Laws)`. The laws render the paper's
-assumptions: `view_subset` and `view_complete` are A2 (a validator
-holds a block only with its whole causal history), `DirectCommitIn` and
-`waveLength` are A3, `agree` is the safety half of A4; the liveness
-half is §7. `BaseRule.IsLeaderBlock
-R S U k L` is the generic candidate predicate — the right round, the
-right author — over the interface's `block` and `ids`; it is the
-conjunction every rule of the development states, so each
-instantiation's `Decided.directCommit` accepts it by unfolding.
+assumptions: A2 is carried by the shared `DagRule` interface as
+`viewSound` and `viewComplete` (a validator holds a block only with its
+whole causal history), `DirectCommitIn` and `waveLength` are A3,
+`agree` is the safety half of A4; the liveness half is §7.
+`BaseRule.IsLeaderBlock R S U k L` is the generic candidate predicate —
+the right round, the right author — over the interface's `block` and
+`ids`; it is the conjunction every rule of the development states, so
+each instantiation's `Decided.directCommit` accepts it by unfolding.
 
 Three shapes are fixed by the instantiations rather than by taste. The
 schedule is an *explicit* argument of `Decided`, `R.Decided S V k v`: an
@@ -194,12 +200,12 @@ structure, so that the frozen file is not reopened.
 
 One construction the data needs cannot be proof-free: the anchor's
 history as a `View`, whose closure the core's `View` type requires as a
-field. It lives in `Helpers/Mysticeti.lean` (`historyViewOf`), the one
-helper a `Statement.lean` of this arc imports, and it is not trusted:
-the law `historyView_ids` pins its ids to the history whatever the
-helper builds.
+field. It is `BlockRecord.historyView` (`Common/History.lean`), generic
+across every carrier and wired into each `BaseRule` instantiation
+through `ofAnchored` (`Model/Anchored.lean`), and it is not trusted: the
+law `historyView_ids` pins its ids to the history whatever it builds.
 
-`decided_of_directCommitIn` is what makes the window count well defined:
+`commitsDirect` is what makes the window count well defined:
 two directly committed candidates of one slot on one view are one block
 by `agree`, so the paper's count over leader *blocks* — several upon
 equivocation — equals a count over *slots* (§4).
@@ -441,7 +447,7 @@ arc collapses onto the base development.
 one; a healthy one increases a count below the maximum by one; `backoff`
 resets on a healthy window. For Mysticeti (Phase 5): `observed ≤
 expected`, from A3's locality and `quorumCard ≥ 2`, in whichever of the
-two forms §4 turns out to hold on data.
+two forms §4 holds on data.
 
 ## 7. Liveness, interface half
 
@@ -462,18 +468,24 @@ inspects it. A4 is then a clause on a schedule, with a commit gap `c`
 ```lean
 def LiveRule.LiveOn (R : LiveRule Validator BlockId Payload) (S : Slots Validator) (c : ℕ) :
     Prop :=
-  ∀ (U : R.Universe) (Rnd N : ℕ), R.Good U Rnd N →
-    (∀ κ, Rnd ≤ S.slotRound κ → S.slotRound κ + R.waveLength ≤ N →
-      ∃ v, R.Decided S (R.full U) κ v) ∧
+  ∀ (U : R.Universe) (V : R.View U) (Rnd N : ℕ), R.Good U Rnd N →
+      R.toBaseRule.CoversUpto U V N →
+    (∀ κ, Rnd ≤ S.slotRound κ → S.slotRound κ + c + R.waveLength ≤ N →
+      ∃ v, R.Decided S V κ v) ∧
     (∀ r, Rnd ≤ r → r + c + R.waveLength ≤ N →
       ∃ κ, r ≤ S.slotRound κ ∧ S.slotRound κ ≤ r + c ∧
-        ∃ L, R.Decided S (R.full U) κ (some L))
+        ∃ L, R.Decided S V κ (some L))
 ```
 
-No view-monotonicity field: only the local form of liveness needs it
-(D6, deferred), and Odontoceti has none. Extending a run by a
-configuration needs the update rule to keep the count in range,
-`UpdBounded P upd` (D13), which BN7a supplies for the AIMD rule.
+`CoversUpto U V N` (`Model/Rule.lean`) is the condition on the view: it
+holds every block of `U` at a round up to `N`, which is what a validator
+that has received everything up to the horizon holds. Still no
+view-monotonicity field — the covering condition does that work, and
+Odontoceti has none. `coversUpto_full` (`Helpers/Cover.lean`) gives the
+condition for `R.full U` at every `N`, so the whole-universe reading is
+the special case. Extending a run by a configuration needs the update
+rule to keep the count in range, `UpdBounded P upd` (D13), which BN7a
+supplies for the AIMD rule.
 
 **BN8a (progress).** The paper's Configuration Progress, at the run's
 own count (D12): a run whose current configuration's range lies at or
@@ -482,12 +494,13 @@ good to a horizon leaving room for the threshold, the gap and one wave,
 extends by one configuration:
 
 ```lean
-  ∀ (U : R.Universe) (Rnd N K : ℕ)
-    (Rn : PartialRun R.toBaseRule P getLeader hk upd U (R.full U) K),
+  ∀ (U : R.Universe) (V : R.View U) (Rnd N K : ℕ),
+    R.toBaseRule.CoversUpto U V N →
+    ∀ (Rn : PartialRun R.toBaseRule P getLeader hk upd U V K),
     R.LiveOn (Sched getLeader hk (Rn.count K) (Rn.count_pos K) (Rn.count_le K)) c →
     R.Good U Rnd N → Rnd ≤ Rn.start K + 1 →
-    Rn.start K + P.interval + 1 + c + R.waveLength ≤ N →
-    Nonempty (PartialRun R.toBaseRule P getLeader hk upd U (R.full U) (K + 1))
+    Rn.start K + P.interval + 1 + 2 * c + R.waveLength ≤ N →
+    Nonempty (PartialRun R.toBaseRule P getLeader hk upd U V (K + 1))
 ```
 
 The new range's slots lie at rounds above `start K`, hence at or after
@@ -501,14 +514,20 @@ liveness. The rule gives the next state, in range by `UpdBounded`.
 
 **BN8b (every height).** From a synchrony round at genesis and the
 clause at every count, a run of every height exists under the horizon
-its height needs, `horizon P R c K := K · (interval + 1 + c) +
+its height needs, `horizon P R c K := K · (interval + 1 + c) + c +
 waveLength`: BN8a iterated, the induction carrying `start K ≤ K ·
 (interval + 1 + c)`. The paper's Liveness, in the prefix form.
 
-Both statements are on the full view; the local form — every reliable
-validator decides on its own view at an explicit time — needs the
-pacing structures of report §5 and view-monotonicity, and is deferred
-(D6).
+Both statements are on any view caught up to the horizon, so a run is
+what a validator holding everything up to `N` reaches, not merely what
+exists in the universe (D6). Under eventual DAG synchrony
+(`liveness.md` §4.2: whatever one correct validator holds, all
+eventually hold, whoever authored it) every correct validator's view
+satisfies the covering condition, so the statements cover every correct
+validator. What remains structural is the time: the time-indexed form,
+where a validator decides on its own view at an explicit time and the
+horizon is a function of when it looks, needs the pacing structures of
+report §5 and is not attempted.
 
 ## 8. Liveness, the descent under multiple leaders
 
@@ -540,8 +559,9 @@ as a second law structure so that `Laws` stays as frozen
 structure LiveRule.Descent (R : LiveRule Validator BlockId Payload) (slack : ℕ) : Prop where
   goodLeaders : ∀ (U : R.Universe) (Rnd N : ℕ), R.Good U Rnd N →
     ∃ T : Finset Validator, Fintype.card Validator ≤ T.card + slack ∧
-      ∀ (S : Slots Validator) (κ : ℕ), Rnd ≤ S.slotRound κ → S.slotRound κ + R.waveLength ≤ N →
-        S.leader κ ∈ T → ∃ L, R.Decided S (R.full U) κ (some L)
+      ∀ (S : Slots Validator) (V : R.View U) (κ : ℕ), R.toBaseRule.CoversUpto U V N →
+        Rnd ≤ S.slotRound κ → S.slotRound κ + R.waveLength ≤ N →
+        S.leader κ ∈ T → ∃ L, R.Decided S V κ (some L)
   indirect : ∀ (S : Slots Validator) {U : R.Universe} (V : R.View U) (i j : ℕ) (A : BlockId),
     S.slotRound i + R.waveLength ≤ S.slotRound j → R.Decided S V j (some A) →
     (∀ i', i < i' → i' < j → S.slotRound i + R.waveLength ≤ S.slotRound i' →
@@ -552,8 +572,13 @@ structure LiveRule.Descent (R : LiveRule Validator BlockId Payload) (slack : ℕ
 `goodLeaders` is the paper's A4 — after GST an honest leader's slot is
 decided directly — with the good set `T` missing at most `slack`
 validators; `indirect` is A3's indirect rule. For Mysticeti the first
-is L4 (`decided_of_leader_mem`) at `slack = f`, the second the two
-indirect constructors of `Decided`.
+is L4 at `slack = f`, through `directCommit_of_leader_mem` rather than
+`decided_of_leader_mem`: the latter concludes on the full view, so the
+verdict is rebuilt inside `V` instead, which works because the
+certificates sit a wave below the horizon and a covering view therefore
+holds them (`certificates ∩ V.ids = certificates`; the supporter sets
+of the two-round rules are the same shape). The second is the two
+indirect constructors of `Decided`, which were view-parametric already.
 
 ```lean
 def HeadsRun (getLeader : ℕ → Validator) (T : Finset Validator) (g c₀ : ℕ) : Prop :=
@@ -572,9 +597,9 @@ minimality argument meets are decided and not committed, hence skipped.
 
 **BN9b (heads decide).** If the heads of rounds `ρ, …, ρ + w − 1` are
 `T`-led, `Rnd ≤ ρ` and `ρ + 2w ≤ N + 1`, then every slot at a round `r`
-with `r < ρ ≤ r + w` is decided on the full view and the head of `ρ` is
-committed: each such slot's wave-up head is one of the `T`-led heads,
-committed directly, with no eligible slot between (D18).
+with `r < ρ ≤ r + w` is decided on any view caught up to `N` and the
+head of `ρ` is committed: each such slot's wave-up head is one of the
+`T`-led heads, committed directly, with no eligible slot between (D18).
 
 **BN9c (`LiveOn` from `HeadsRun`).** A run of heads with gap `c₀` for
 every set missing at most `slack` validators gives
@@ -597,6 +622,18 @@ committee bound `3f + 1 ≤ n` is exactly `g · slack + 1 ≤ n` at `g = 3`,
 **BN9e (round-robin is live).** A live rule with descent laws at `slack`
 on `n ≥ w · slack + 1` validators is live under round-robin at every
 count, with gap `n + w − 1`.
+
+**All eight rules now get the descent laws the same way, from a
+support.** `Barnacle.descent_of_support` (`Helpers/Descent.lean`)
+derives `LiveRule.Descent` for any live rule carrying a `Support` whose
+`OfCoverage` and `Commits` hold at a fault model's reliability, an
+`Indirect` property at the rule's eligibility, and good DAGs that are
+`Timed.Good`: `goodLeaders` is `Timed.exists_decided_of_coverage` read
+at the support's coverage and commit laws, and `indirect` is the
+property read at the schedule it is given. Mysticeti, Odontoceti,
+Hydrozoan, Nemo, Orcaella, Optimal-Hydrozoan, FinWhale and Mahi-Mahi
+each call it once from their own `Proof.lean`; nothing rule-specific is
+left under `Helpers/`.
 
 **Mysticeti (`MysticetiLive/`).** `mysticetiLive` is Mysticeti with the
 base development's own liveness interface as `Good` — a correct quorum
@@ -649,10 +686,10 @@ stated.
 - **The heads descent.** A DAG with a Byzantine head undecided directly
   and decided by the head three rounds above; `HeadsRun` for round-robin
   at `n = 4` by `decide` over one cycle.
-- **The three instantiations.** `BaseRule` for Mysticeti, Odontoceti
+- **The four instantiations.** `BaseRule` for Mysticeti, Odontoceti
   and Nemo, each on its existing test model (`U7`, the Odontoceti model,
   the three-validator Nemo model), with the window count computed under
-  each rule.
+  each rule; Orcaella's witnesses (§15) live in their own three files.
 
 ## 10. Layout and discipline
 
@@ -741,8 +778,10 @@ author comment when confirmed.
   convergence. *Phase 2.*
 - **F5 — safety for any update rule.** The paper's Leader-Count
   Agreement is stated for the AIMD rule; it holds for any deterministic
-  function of the universe and the anchor, which is a stronger and
-  simpler statement for the Lean appendix. *Phase 2.*
+  rule whose step does not depend on which view computes it
+  (`Anchored`) — which is every rule reading only the anchor's window,
+  AIMD among them — a stronger and simpler statement for the Lean
+  appendix. *Phase 2.*
 - **F8 — safety inside liveness.** Configuration Progress consumes
   the agreement law: the verdict the liveness clause chooses for the
   anchor's slot and the commit it provides for it are identified by
@@ -774,9 +813,15 @@ below); the Phase 1 sources implement them as written.
   from the slot after the anchor.
 - **D5 — the count.** Over slots, with the block count shown equal
   (recommended), or over blocks as the pseudocode iterates.
-- **D6 — local liveness.** BN8 on the full view, local form deferred
-  (recommended for this arc), or the time-indexed local statement in
-  scope from the start.
+- **D6 — local liveness.** BN8 on the full view, local form deferred, or
+  the time-indexed local statement in scope from the start. **Revisited**:
+  the liveness clause, the descent law and BN8 are now stated over any
+  view *caught up to the horizon* (`CoversUpto U V N`), so a run is what a
+  validator holding everything up to `N` reaches. The full view satisfies
+  the condition at every `N` (`coversUpto_full`), so the earlier reading
+  is the special case and nothing downstream weakened. Still not
+  attempted is the time-indexed form, where the horizon is a function of
+  when the validator looks.
 - **D7 — the initial configuration.** `(0, 1)` as Algorithm 1
   initialises (recommended), or an initial count as a parameter.
 - **D8 — the leader function.** Abstract `getLeader` with the
@@ -846,11 +891,90 @@ uninhabited (F7, Phase 2).
 - **Garbage collection.** A joiner reading the window from a truncated
   universe; the analogue of `HorizonStable` (report §16, I5).
 - **Non-pipelined base protocols**, where `expected` is divided by the
-  wave length; all three instantiated protocols are pipelined.
+  wave length; all four instantiated protocols are pipelined.
 - **Certified DAGs.** The paper says the measurement applies; the model
   has no certified-DAG base.
+- **Validity, for the two Byzantine rules.** BN14: a good author's block
+  lies in the causal history of the block a closed configuration's anchor
+  commits, so the run delivers it. The route is coverage rather than the
+  self-parent edge report §20 uses — no self-parent clause, which this
+  interface does not carry; no rotation hypothesis; and the author's own
+  slot need never commit. Nemo-Nemo is outstanding: its persistence
+  lemmas conclude from a block *exactly* two rounds above where the
+  core's conclude from every block at two rounds or more, and closing
+  that needs a descent the crash arc does not have. BN14 consumes only
+  the law, so the crash rule joins by proving that descent and nothing
+  else.
+
+- **The real rule on data.** BN11 discharges the liveness clause, so the
+  synthetic test rule is no longer the only way to run BN8 on data:
+  `LeanDagTest/Barnacle/Real.lean` gives runs of every height on the
+  grown family under the real Mysticeti rule with its real `Good`, at the
+  horizon each height costs.
+
 - **Performance (R2).** The paper's evaluation claims are outside the
-  formal model, as the paper says.
+  formal model, as the paper says. What *is* now inside it is that the
+  loop is not inert: BN12 shows `expected` is exactly the count of a
+  window whose scoring slots all commit, so a healthy window is read as
+  healthy and the rule raises the count. What remains outside is the step
+  from a *good DAG* to a healthy window, which needs the anchor's history
+  to carry the good validators' blocks below it and is bounded by the
+  good set rather than by `expected`.
 - **Byzantine bias of the measurement.** The paper notes a Byzantine
   leader can lower the direct rate within a window; that the damage is
   bounded to one interval is a quantitative claim not attempted here.
+
+## 15. Addendum: the fourth instantiation (2026-09-01)
+
+Orcaella — the hybrid two-round rule of `LeanDag/Hybrid/` at
+`n ≥ 5·fb + 3·fc + 1` (report §14) — joins the interface as
+`Barnacle/Orcaella/`, closing the gap with the paper's Lean section,
+which lists four base protocols. The instantiation is the Odontoceti
+trio one parameter and one subtype away, with two decisions that carry
+the hybrid model's shape rather than mirroring Odontoceti's:
+
+- **The universe bundles `HonestNoEquiv`.** The hybrid model's one
+  genuinely new assumption — a crash-prone validator authors at most
+  one block per round too — is a hypothesis of every hybrid safety
+  theorem, and `BaseRule.Laws.agree` has no slot for it; per §2's
+  design, the fault class lives on the instantiation, so the universe
+  is `{U : BlockUniverse … // HonestNoEquiv U}`. At `fc = 0` the
+  subtype is provably full (`honestNoEquiv_of_fc_zero`,
+  `Hybrid/Conservativity.lean`), so the crash-free collapse onto
+  Odontoceti loses no universes; `Ubad`
+  (`LeanDagTest/Barnacle/Orcaella.lean`) shows the clause bites as
+  soon as a crash class exists.
+- **The indirect threshold is a parameter.** The hybrid indirect rule
+  works at any `k` in the admissible interval
+  `2·fb + fc + 1 ≤ k ≤ n − 3·fb − 2·fc`, whose nonemptiness *is* the
+  committee bound, so `orcaella (k)` and every statement quantify over
+  an admissible `k`; the paper's link size is the top end `kRel`.
+
+The statements mirror BN10's shape: the laws at every admissible
+threshold, the descent laws at slack `fb + fc` — the only place the
+mixed bound enters, through the reliable set being the fully-correct
+class at quorum `q = n − fb − fc` — and round-robin liveness at every
+leader count with gap `n + 1` (`Orcaella/Statement.lean`, proofs in
+`Orcaella/Proof.lean`).
+
+The witnesses span three files, none of which may import
+`LeanDagTest.Mysticeti.Model`'s competing `Faults (Fin 4)` instance (each file's
+header says so, and instance pins guard the resolution):
+
+- `LeanDagTest/Barnacle/Orcaella.lean` — the subtype formed on
+  `Uhyb4`; the window count under a crash (healthy at count one,
+  backing off from four); `Good` and the descent law by pigeonhole
+  (the reliable set may contain the crashed validator, so the sunny
+  Odontoceti script does not transfer); the slack `fb + fc` proved
+  exact (`not_descent_zero`); and `Ubad`.
+- `LeanDagTest/Barnacle/OrcaellaIndirect.lean` — the indirect rule at
+  admissible thresholds, previously witnessed nowhere: `U5`
+  (`n = 5, fb = 0, fc = 1`, the first non-singleton interval
+  `[2, 3]`), one DAG that commits its split slot at threshold `2` and
+  skips it at `3`; and `UhybX` (`n = 9`, `fb = fc = 1`, five rounds),
+  the first `Good` at `fb, fc > 0` and the twin-canonicity witness —
+  both Byzantine twins pass at the anchor, the least commits.
+- `LeanDagTest/Barnacle/OrcaellaLive.lean` — a nine-round crash model
+  tall enough for the gap, `RoundRobinLive` applied at counts one and
+  two with both clauses non-vacuous and verdicts pinned through
+  `agree`.

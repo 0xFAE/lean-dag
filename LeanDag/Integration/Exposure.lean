@@ -1,27 +1,18 @@
 import LeanDag.Integration.ReGenesis
 import LeanDag.SafeSkip.Invariance
-
 /-!
 # I1 — the fill enlarges cones, and what that costs
 
-`integration.md` §5.6 predicted that `DoSValid` fails under the Safe
-Skip fill. This file establishes the mechanism, which is the part worth
-having: **the fill's blocks reach strictly more than the donor's do.**
-
-`fillBlock` is the donor's references *plus* a self reference to `v1`'s
-chain (P3′ forces it, report §12.1). So a filled block's cone is the
-donor block's cone together with `v1`'s pre-crash history — and
-`DoSValid` forbids a block from citing an author exposed **in its own
-cone**. A larger cone can only expose more authors, while the citations
-are inherited unchanged from the donor. That is the whole of the
-predicted failure, and `reaches_B1_of_fill` below is its engine.
-
-The contrast with re-genesis (I19a) is exact and worth keeping in view:
-re-genesis adds a block with *no* references, which enlarges no cone
-and cites nothing, so it preserves `DoSValid` outright. The fill adds
-blocks with references, and the self reference it is obliged to add is
-precisely what breaks the cone-based condition. **P3′ pays for itself
-in §8 and charges for itself in §12.**
+`DoSValid` is not preserved by the Safe Skip fill as it stands
+(`integration.md` §3.4): the fill's blocks reach strictly more than the
+donor's do. `fillBlock` is the donor's references plus a self reference
+to `v1`'s chain (P3′ forces it, report §12.1), so a filled block's cone
+is the donor's together with `v1`'s pre-crash history, and `DoSValid`
+forbids citing an author exposed in that larger cone
+(`reaches_B1_of_fill` is the mechanism behind it). Re-genesis (I19a)
+contrasts exactly: it adds a block with no references, enlarging no
+cone, so it preserves `DoSValid` outright — the self reference P3′
+requires in §8 is what breaks the condition in §12.
 -/
 
 namespace LeanDag
@@ -40,17 +31,12 @@ theorem reaches_B1_of_fill (sk : SkipMsg U) :
   refine Reaches.single ?_
   show sk.B1 ∈ (sk.skipFill.block (sk.fresh (sk.r0 + 1))).refs
   rw [sk.skipFill_block_fresh]
-  simp only [SkipMsg.fillBlock, SkipMsg.prev, if_pos rfl]
+  simp only [SkipData.fillBlock, SkipData.prev, if_pos rfl]
   exact Finset.mem_insert_self _ _
 
 /-- **The cone grows.** Everything the anchor reaches, the first filled
-block reaches — so `v1`'s entire pre-crash history is inside the fill's
-cone, whether or not the donor's block at that round could see any of
-it.
-
-This is I1's mechanism. `DoSValid` quantifies over a block's own cone,
-so a citation inherited from the donor — innocuous in the donor's
-smaller cone — can be a violation in the filled block's larger one. -/
+block reaches, so `v1`'s entire pre-crash history is inside the fill's
+cone, whether or not the donor's block there could see any of it. -/
 theorem reaches_of_fill_of_reaches_B1 (sk : SkipMsg U) {x : BlockId}
     (h : Reaches U sk.B1 x) :
     Reaches sk.skipFill (sk.fresh (sk.r0 + 1)) x :=
@@ -69,24 +55,11 @@ theorem history_B1_subset_fill (sk : SkipMsg U) (hne : sk.r0 < sk.r) :
   rw [mem_history_iff hmem]
   exact reaches_of_fill_of_reaches_B1 sk hx
 
-/-! ## The failure is local to the fill
-
-The fill copies a donor block's references, and the donor is a block of
-`U`, so `DoSValid U` already vouches for those citations *in the
-donor's cone*. What the fill adds is the self reference report §12.1 is
-obliged to add, which enlarges the cone. The question is whether that
-can disturb anything **else**, and it cannot: an old block's cone
-contains no filled block, because no old block references a fresh
-identifier — SS3's observation once more.
-
-So the exposure condition decomposes. `DoSValid` holds of the fill
-exactly when it held of `U` and the filled blocks themselves are sound,
-and the second half is a property of the fill alone. That makes it a
-*checkable precondition*: a recipient computes the fill and inspects
-its blocks, consulting no identity oracle and nothing outside the
-message and its own DAG. In report §8's vocabulary the condition is
-enforceable, which is the standard that section holds its clauses to.
--/
+/-! ## The failure is local to the fill: an old block's cone contains no
+filled block, since no old block references a fresh identifier, so
+`DoSValid` holds of the fill exactly when it holds of `U` and the
+filled blocks are separately sound — a precondition a recipient checks
+by computing the fill and inspecting it. -/
 
 section Locality
 
@@ -126,14 +99,7 @@ theorem exposedIn_skipFill_old {b : BlockId} (hb : b ∈ U.ids) {X : Validator} 
 
 /-- **I1.** The fill can break the exposure condition only at its own
 blocks. Given `DoSValid U`, the extension is `DoSValid` as soon as each
-filled block is sound — a condition on the fill alone, which a
-recipient checks by computing the fill and inspecting it.
-
-This is the form report §8 asks of its clauses: structural,
-author-blind, and checkable by the party it binds. The predicted
-failure (`history_B1_subset_fill`) is not thereby avoided — a fill
-whose enlarged cone exposes a donor citation simply fails the check,
-and is refused rather than accepted and unsound. -/
+filled block is sound — a condition on the fill alone. -/
 theorem dosValid_skipFill (hdos : DoSValid U)
     (hnew : ∀ k, sk.r0 < k → k ≤ sk.r →
       ∀ i ∈ (sk.skipFill.block (sk.fresh k)).refs,
@@ -149,27 +115,11 @@ theorem dosValid_skipFill (hdos : DoSValid U)
   · obtain ⟨k, hk1, hk2, rfl⟩ := sk.mem_freshIds.mp hf
     exact hnew k hk1 hk2 i hi
 
-/-! ## The check reduces to reachability
-
-The obligation of `dosValid_skipFill` asks a recipient to compute
-exposure over the fill's cone. It collapses to a **reachability test**
-under a condition that holds in the ordinary case: *the donor's block
-at each gap round already reaches the anchor*. That is what a donor
-line does whenever it referenced `v1`'s last block, which it would
-have, `v1` having been producing at `r0`.
-
-Under it the fill's cone adds nothing but `v1`'s own new blocks
-(`fill_cone_subset`), and those cannot form an equivocating pair: they
-sit at distinct rounds, `hgap` excludes an old `v1` block at any of
-them, and `hB1uniq` pins the anchor's round. What is left is the
-donor's own cone, for which `DoSValid U` already vouches.
-
-The second hypothesis is forced rather than chosen. `SkipMsg` records
-only that the anchor is `v1`'s unique block *at its own round*
-(report §12.1), which leaves open that `v1` equivocated before
-crashing — and a fill's self reference would then cite an exposed
-author. Non-equivocation of `v1` throughout is what the base model's
-correctness and report §14's honesty each supply. -/
+/-! ## The check reduces to reachability: if each donor block already
+reaches the anchor, the fill's cone adds nothing but `v1`'s own new
+blocks (`fill_cone_subset`), which cannot form an equivocating pair, so
+what remains is the donor's own cone, for which `DoSValid U` already
+vouches. -/
 
 section Reachability
 
@@ -196,13 +146,13 @@ theorem fill_cone_subset (sk : SkipMsg U)
         subst hj
         by_cases hb : k = sk.r0 + 1
         · -- boundary: the anchor, whose cone the donor covers
-          rw [SkipMsg.prev, if_pos hb] at hji
+          rw [SkipData.prev, if_pos hb] at hji
           obtain ⟨hio, hiU⟩ := (sk.reaches_fill_old sk.hB1).mp hji
           refine Or.inr (history_subset_of_reaches hlm
             ((mem_history_iff hlm).mp (hcov k hk1 hk2)) ?_)
           exact (mem_history_iff sk.hB1).mpr hiU
         · -- inside the gap: the previous filled block, by induction
-          rw [SkipMsg.prev, if_neg hb] at hji
+          rw [SkipData.prev, if_neg hb] at hji
           rcases ih (k - 1) (by omega) (by omega) (by omega) i hji with h | h
           · exact Or.inl h
           · refine Or.inr (history_subset_of_reaches hlm ?_ h)
@@ -216,12 +166,7 @@ theorem fill_cone_subset (sk : SkipMsg U)
 
 /-- **I14.** The enforceable check reduces to reachability. If each
 donor block reaches the anchor and `v1` never equivocates, the fill
-preserves the exposure condition outright — no exposure computation
-over the extension is needed.
-
-This is the deployable form: a recipient verifies that the donor line
-covers the anchor, which is one reachability query per gap round
-against its own DAG. -/
+preserves the exposure condition outright. -/
 theorem dosValid_skipFill_of_covered (hdos : DoSValid U)
     (hcov : ∀ k, sk.r0 < k → k ≤ sk.r → sk.B1 ∈ history U (sk.line k))
     (hv1ne : ∀ p ∈ U.ids, ∀ q ∈ U.ids, (U.block p).creator = sk.v1 →
@@ -242,20 +187,20 @@ theorem dosValid_skipFill_of_covered (hdos : DoSValid U)
     obtain ⟨m, hm1, hm2, rfl⟩ := sk.mem_freshIds.mp hxf
     obtain ⟨m', hm1', hm2', rfl⟩ := sk.mem_freshIds.mp hyf
     rw [sk.skipFill_block_fresh, sk.skipFill_block_fresh] at hr
-    simp only [SkipMsg.fillBlock] at hr
+    simp only [SkipData.fillBlock] at hr
     exact hne (hr ▸ rfl)
   · -- one fresh, one old: an old `v1` block at a gap round is the crash
     obtain ⟨m, hm1, hm2, rfl⟩ := sk.mem_freshIds.mp hxf
     have hyU : y ∈ U.ids := mem_ids_of_reaches hlm ((mem_history_iff hlm).mp hyo)
     rw [sk.skipFill_block_fresh] at hxc hr
     rw [sk.skipFill_block_old hyU] at hyc hr
-    simp only [SkipMsg.fillBlock] at hxc hr
+    simp only [SkipData.fillBlock] at hxc hr
     exact sk.hgap y hyU (hyc.trans hxc.symm) (by omega) (by omega)
   · obtain ⟨m, hm1, hm2, rfl⟩ := sk.mem_freshIds.mp hyf
     have hxU : x ∈ U.ids := mem_ids_of_reaches hlm ((mem_history_iff hlm).mp hxo)
     rw [sk.skipFill_block_fresh] at hyc hr
     rw [sk.skipFill_block_old hxU] at hxc hr
-    simp only [SkipMsg.fillBlock] at hyc hr
+    simp only [SkipData.fillBlock] at hyc hr
     exact sk.hgap x hxU (hxc.trans hyc.symm) (by omega) (by omega)
   · -- both old: the donor's own cone, for which `DoSValid U` vouches
     have hxU : x ∈ U.ids := mem_ids_of_reaches hlm ((mem_history_iff hlm).mp hxo)
@@ -271,8 +216,8 @@ theorem dosValid_skipFill_of_covered (hdos : DoSValid U)
       subst hip
       have hpv : (sk.skipFill.block (sk.prev k)).creator = sk.v1 := by
         by_cases hb : k = sk.r0 + 1
-        · rw [SkipMsg.prev, if_pos hb, sk.skipFill_block_old sk.hB1]; exact sk.hB1c
-        · rw [SkipMsg.prev, if_neg hb, sk.skipFill_block_fresh]; rfl
+        · rw [SkipData.prev, if_pos hb, sk.skipFill_block_old sk.hB1]; exact sk.hB1c
+        · rw [SkipData.prev, if_neg hb, sk.skipFill_block_fresh]; rfl
       rw [hpv] at hxc hyc
       exact hne (hv1ne x hxU y hyU hxc hyc hr)
     · -- a donor citation: `DoSValid U` at the donor block

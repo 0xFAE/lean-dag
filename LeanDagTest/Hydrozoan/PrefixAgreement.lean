@@ -1,6 +1,5 @@
 import LeanDag.Hydrozoan.PrefixAgreement.Statement
 import LeanDagTest.Hydrozoan.SlotAgreement
-
 /-!
 # Witness: output sequences
 
@@ -15,8 +14,6 @@ namespace LeanDagTest
 namespace Hydrozoan
 
 open LeanDag LeanDag.Hydrozoan Hydrozoan.PrefixAgreement
-
-set_option maxRecDepth 16384
 
 /-- The five settled verdicts of `U5` as a decision function: slots 0
 and 4 commit (ids 2 and 31), slots 1–3 are skipped. -/
@@ -37,11 +34,11 @@ example : DecidesBelow U5 Vfull5 g5 5 := by
   intro k hk
   have hcase : k = 0 ∨ k = 1 ∨ k = 2 ∨ k = 3 ∨ k = 4 := by omega
   rcases hcase with rfl | rfl | rfl | rfl | rfl
-  · exact Decided.directFast (by decide) (by decide)
+  · exact Decided.directCommit (by decide) (Or.inl (by decide))
   · exact Decided.directSkip (by decide)
   · exact Decided.directSkip (by decide)
   · exact Decided.directSkip (by decide)
-  · exact Decided.directFast (by decide) (by decide)
+  · exact Decided.directCommit (by decide) (Or.inl (by decide))
 
 -- The actual output sequence: skips dropped, slot order kept.
 example : commitSeq g5 5 = [2, 31] := rfl
@@ -51,7 +48,7 @@ example : DecidesBelow U5 V5b g5b 1 := by
   intro k hk
   have hcase : k = 0 := by omega
   subst hcase
-  exact Decided.directFast (by decide) (by decide)
+  exact Decided.directCommit (by decide) (Or.inl (by decide))
 
 example : commitSeq g5b 1 = [2] := rfl
 

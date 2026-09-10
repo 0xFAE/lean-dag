@@ -1,7 +1,8 @@
 import LeanDag.MahiMahi.Model.Unpredictable
 import LeanDag.MahiMahi.Helpers.Counting
-import LeanDag.ViewPace
-
+import LeanDag.MahiMahi.Helpers.Decision
+import LeanDag.Common.Anchored.Bounded
+import LeanDag.Mysticeti.ViewPace
 /-!
 # Helpers — the liveness layer
 
@@ -17,42 +18,20 @@ namespace LeanDag
 
 namespace MahiMahi
 
-variable {Validator : Type*} [Fintype Validator] [DecidableEq Validator]
+variable {Validator : Type} [Fintype Validator] [DecidableEq Validator]
 variable [F : Faults Validator]
-variable {BlockId : Type*} [LinearOrder BlockId] {Payload : Type*}
+variable {BlockId : Type} [LinearOrder BlockId] {Payload : Type}
 variable {U : BlockUniverse Validator BlockId Payload}
 
 /-! ## Lifting a direct commit to the full view -/
 
-theorem certificatesIn_full {w : ℕ} {L : BlockId} {r : ℕ} :
-    certificatesIn U (View.full U) w L r = certificates U w L r := by
-  unfold certificatesIn
-  apply Finset.inter_eq_left.mpr
-  intro C hC
-  exact (mem_certificates.mp hC).1
-
 theorem directCommitIn_full {w : ℕ} {L : BlockId} {r : ℕ} (h : DirectCommit U w L r) :
-    DirectCommitIn U (View.full U) w L r := by
-  unfold DirectCommitIn
-  rw [certificatesIn_full]
-  exact h
+    DirectCommitIn U (View.full U) w L r :=
+  (HoldsAtLeast.full fun _ hC => (mem_certificatesAt.mp hC).1).mpr h
 
 section Slots
 
 variable [S : Slots Validator]
-
-/-! ## Eligibility at wave `w` -/
-
-omit [Fintype Validator] [DecidableEq Validator] F [LinearOrder BlockId] in
-/-- An eligible anchor lies strictly above the slot; the one property of
-eligibility the descent uses. Needs a wave of at least one round: at
-`w = 0` truncated subtraction lets a slot anchor itself. -/
-theorem lt_of_eligible {w k j : ℕ} (hw : 1 ≤ w) (h : Eligible Validator w k j) : k < j := by
-  by_contra hle
-  push Not at hle
-  have := S.mono hle
-  unfold Eligible decisionRound at h
-  omega
 
 /-! ## A good leader commits -/
 
@@ -64,68 +43,24 @@ theorem decided_of_mem_good {w k : ℕ} (h : S.leader k ∈ good U w k) :
   obtain ⟨L, hL, hLr, hLc, hcommit⟩ := h
   exact ⟨L, ⟨hL, hLr, hLc⟩, Decided.directCommit ⟨hL, hLr, hLc⟩ (directCommitIn_full hcommit)⟩
 
-/-! ## The descent from a committed run -/
+/-! ## The descent from a committed run
 
-open Classical in
-/-- **Every slot below a committed run is decided** — the core's
-`decided_below_of_committed_run` at wave `w`, verbatim up to the
-relation: strong induction on the distance to the run, each slot
-anchored on the nearest eligible committed slot, the eligible slots
-between it being skipped by the induction hypothesis. -/
-theorem decided_below_of_committed_run {w : ℕ} (hw : 1 ≤ w)
-    {V : View Validator BlockId Payload U} {b n : ℕ} (hbn : b ≤ n)
-    (hspan : ∀ i, i < b → Eligible Validator w i n)
-    (hrun : ∀ j, b ≤ j → j ≤ n → ∃ B, Decided w U V j (some B)) :
-    ∀ i, i < b → ∃ v, Decided w U V i v := by
-  classical
-  have key : ∀ d i, i < b → b - i ≤ d → ∃ v, Decided w U V i v := by
-    intro d
-    induction d with
-    | zero => intro i hi hd; omega
-    | succ d ih =>
-      intro i hi hd
-      have hex : ∃ j, Eligible Validator w i j ∧ ∃ B, Decided w U V j (some B) :=
-        ⟨n, hspan i hi, hrun n hbn (le_refl n)⟩
-      have hle : Nat.find hex ≤ n :=
-        Nat.find_le ⟨hspan i hi, hrun n hbn (le_refl n)⟩
-      obtain ⟨helig, B, hB⟩ := Nat.find_spec hex
-      have hmid : ∀ i', i < i' → i' < Nat.find hex → Eligible Validator w i i' →
-          Decided w U V i' none := by
-        intro i' h1 h2 h3
-        have hnc : ¬ ∃ C, Decided w U V i' (some C) :=
-          fun hc => Nat.find_min hex h2 ⟨h3, hc⟩
-        have hi'b : i' < b := by
-          by_contra hge
-          exact hnc (hrun i' (by omega) (by omega))
-        obtain ⟨v, hv⟩ := ih i' hi'b (by omega)
-        cases v with
-        | none => exact hv
-        | some C => exact absurd ⟨C, hv⟩ hnc
-      by_cases hc : ∃ L, IsLeaderBlock U i L ∧ CertifiedIn U w B L (S.slotRound i)
-      · obtain ⟨L, hL, hcert⟩ := hc
-        exact ⟨some L, Decided.indirectCommit (lt_of_eligible hw helig) helig hB hmid hL hcert⟩
-      · push Not at hc
-        exact ⟨none, Decided.indirectSkip (lt_of_eligible hw helig) helig hB hmid hc⟩
-  intro i hi
-  exact key (b - i) i hi (le_refl _)
+Every slot below a committed run is decided: the relation's
+`decided_below_of_committed_run` at wave `w`, with no tie to break. -/
 
 /-- **MM3c.** The run form supplies the committed run; the descent does
 the rest. A spanning run has at least one slot. -/
-theorem allDecidedBelow {w c d N : ℕ} (hw : 1 ≤ w)
-    (hspan : SpansEligible Validator w d) (hrun : UnpredictableRunWithin U w c d N)
-    (k : ℕ) (hk : decisionRound Validator w (k + c + d - 1) ≤ N) :
+theorem allDecidedBelow {w c d N : ℕ}
+    (hspan : (mahiMahiAnchored Validator BlockId Payload w).SpansEligible d)
+    (hrun : UnpredictableRunWithin U w c d N) (k : ℕ)
+    (hk : (mahiMahiAnchored Validator BlockId Payload w).decisionRound (k + c + d - 1) ≤ N) :
     ∃ b, k ≤ b ∧ ∀ i, i < b → ∃ v, Decided w U (View.full U) i v := by
   obtain ⟨k', hk1, hk2, hgood⟩ := hrun k hk
   have hd : 1 ≤ d := by
-    have := lt_of_eligible hw (hspan 1 0 (by omega))
+    have := (mahiMahiAnchored Validator BlockId Payload w).lt_of_eligible (hspan 1 0 (by omega))
     omega
-  refine ⟨k', hk1, ?_⟩
-  refine decided_below_of_committed_run hw (b := k') (n := k' + d - 1) (by omega)
-    (fun i hi => hspan k' i hi) ?_
-  intro j hj1 hj2
-  have hj : S.leader j ∈ good U w j := by
-    have := hgood (j - k') (by omega)
-    rwa [Nat.add_sub_cancel' hj1] at this
+  refine ⟨k', hk1, AnchoredRule.decided_below_of_run (fun hi h => exists_least hi h) hd hspan
+    (Led := fun j => S.leader j ∈ good U w j) hgood fun j _ _ hj => ?_⟩
   obtain ⟨L, -, hdec⟩ := decided_of_mem_good hj
   exact ⟨L, hdec⟩
 
@@ -150,23 +85,22 @@ theorem holds_roundBlocks_eventually {T : Finset Validator} {N : ℕ} (pc : Pace
 /-- **MM3d.** The counting re-run inside the view: production gives every
 reliable validator a decision-round block, the premise makes each a
 certificate, and eventual delivery puts each in the view. -/
-theorem localCommit {w : ℕ} {T : Finset Validator} {N : ℕ} (pc : PaceCore U T N)
+theorem localCommit {w : ℕ} (hw : 1 ≤ w) {T : Finset Validator} {N : ℕ} (pc : PaceCore U T N)
     (hcard : quorumCard Validator ≤ T.card) {k : ℕ} {L : BlockId}
-    (hL : IsLeaderBlock U k L) (hN : decisionRound Validator w k ≤ N)
+    (hL : IsLeaderBlock U k L) (hN : (mahiMahiAnchored Validator BlockId Payload w).decisionRound k ≤ N)
     (hcert : ∀ u ∈ T, ∀ C ∈ U.ids, (U.block C).creator = u →
-      (U.block C).round = decisionRound Validator w k → Certifies U C L) :
+      (U.block C).round = (mahiMahiAnchored Validator BlockId Payload w).decisionRound k → Certifies U C L) :
     ∀ v ∈ T, Decided w U
-      (pc.viewAt v (max (pc.latest (decisionRound Validator w k)) pc.gst + pc.delay))
+      (pc.viewAt v (max (pc.latest ((mahiMahiAnchored Validator BlockId Payload w).decisionRound k)) pc.gst + pc.delay))
       k (some L) := by
-  have hpop := pc.populatedOn hcard (decisionRound Validator w k) hN
+  rw [mahiMahiAnchored_decisionRound hw] at hN hcert ⊢
+  have hpop := pc.populatedOn hcard _ hN
   intro v hv
   refine Decided.directCommit hL (le_trans hcard (Finset.card_le_card ?_))
   intro u hu
   obtain ⟨c, hc, hcc, hcr⟩ := hpop u hu
-  refine mem_creatorsOf.mpr ⟨c, ?_, hcc⟩
-  rw [certificatesIn, Finset.mem_inter]
-  refine ⟨mem_certificates.mpr ⟨hc, hcr, hcert u hu c hc hcc hcr⟩, ?_⟩
-  exact pc.mem_viewAt (holds_roundBlocks_eventually pc hN v hv c hc (hcc ▸ hu) hcr)
+  exact mem_heldAuthors.mpr ⟨c, mem_certificatesAt.mpr ⟨hc, hcr, hcert u hu c hc hcc hcr⟩,
+    pc.mem_viewAt (holds_roundBlocks_eventually pc hN v hv c hc (hcc ▸ hu) hcr), hcc⟩
 
 end Slots
 
@@ -243,7 +177,7 @@ theorem AgreeUpto.votesIn_eq (h : AgreeUpto U₁ U₂ d) {C L : BlockId}
     (hC : C ∈ U₁.ids) (hCr : (U₁.block C).round ≤ d)
     (hL : L ∈ U₁.ids) (hLr : (U₁.block L).round ≤ d) :
     votesIn U₁ C L = votesIn U₂ C L := by
-  unfold votesIn
+  unfold votesIn carriedVotes
   rw [← h.block C hC hCr]
   apply Finset.filter_congr
   intro q hq
@@ -266,10 +200,11 @@ theorem AgreeUpto.certifies_iff (h : AgreeUpto U₁ U₂ d) {C L : BlockId}
     (hC : C ∈ U₁.ids) (hCr : (U₁.block C).round ≤ d)
     (hL : L ∈ U₁.ids) (hLr : (U₁.block L).round ≤ d) :
     Certifies U₁ C L ↔ Certifies U₂ C L := by
-  unfold Certifies
-  rw [h.votesIn_eq hC hCr hL hLr, ← h.creatorsOf_eq]
+  unfold Certifies CarriesVotes
+  rw [show carriedVotes U₁ (Votes U₁) C L = carriedVotes U₂ (Votes U₂) C L from
+    h.votesIn_eq hC hCr hL hLr, ← h.creatorsOf_eq]
   intro q hq
-  rw [mem_votesIn] at hq
+  rw [mem_carriedVotes] at hq
   rw [← h.block C hC hCr] at hq
   have hqids := U₁.complete C hC q hq.1
   have hqr := U₁.round_of_mem_refs hC hq.1
@@ -278,7 +213,7 @@ theorem AgreeUpto.certifies_iff (h : AgreeUpto U₁ U₂ d) {C L : BlockId}
 theorem AgreeUpto.certificates_eq (h : AgreeUpto U₁ U₂ d) {w : ℕ} {L : BlockId} {r : ℕ}
     (hd : decisionRoundAt w r ≤ d) (hL : L ∈ U₁.ids) (hLr : (U₁.block L).round ≤ d) :
     certificates U₁ w L r = certificates U₂ w L r := by
-  unfold certificates
+  unfold certificates certificatesAt
   rw [h.blocksAt_eq hd]
   apply Finset.filter_congr
   intro C hC
@@ -292,7 +227,7 @@ theorem AgreeUpto.directCommit_iff (h : AgreeUpto U₁ U₂ d) {w : ℕ} {L : Bl
   unfold DirectCommit
   rw [h.certificates_eq hd hL hLr, ← h.creatorsOf_eq]
   intro C hC
-  obtain ⟨hC₂, hCr₂, -⟩ := mem_certificates.mp hC
+  obtain ⟨hC₂, hCr₂, -⟩ := mem_certificatesAt.mp hC
   obtain ⟨hC₁, hCr₁⟩ := (h.ids C).mpr ⟨hC₂, by omega⟩
   exact ⟨hC₁, hCr₁⟩
 

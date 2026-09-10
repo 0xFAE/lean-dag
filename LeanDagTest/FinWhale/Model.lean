@@ -1,9 +1,10 @@
-import LeanDag.FinWhale.Order
+import LeanDag.FinWhale.Procedure.Order
 import LeanDag.FinWhale.Rotation
-import LeanDag.FinWhale.Decided
+import LeanDag.FinWhale.Procedure.Decided
 import LeanDag.FinWhale.View
-import LeanDag.FinWhale.Pass
+import LeanDag.FinWhale.Procedure.Pass
 import Mathlib.Tactic.IntervalCases
+import LeanDag.FinWhale.Procedure.View
 
 /-!
 # FinWhale witnesses — the commit rules on data
@@ -27,9 +28,10 @@ namespace LeanDagTest
 
 namespace FinWhale
 
+-- `decide` over these DAGs reduces through nested `Finset` structure, which
+-- recurses past the default depth; the heartbeat and `synthInstance` limits
+-- this file used to raise are no longer needed.
 set_option maxRecDepth 4000
-set_option synthInstance.maxSize 1000
-set_option synthInstance.maxHeartbeats 1000000
 
 open LeanDag LeanDag.FinWhale
 
@@ -75,7 +77,10 @@ def fastBlk : Fin 36 → Block (Fin 9) (Fin 36) Unit := fun i =>
       else {18, 19, 20, 21, 22, 23, 24},
     payload := () }
 
-theorem fastValid : ∀ i : Fin 36, ValidHere fastBlk fwLeader (fastBlk i) := by
+/-- The schedule the witnesses run: one slot a round. -/
+def fwSched : Slots (Fin 9) := Slots.identity fwLeader
+
+theorem fastValid : ∀ i : Fin 36, ValidHere fastBlk (fastBlk i) := by
   intro i
   refine ⟨?_, ?_, ?_, ?_⟩ <;> revert i <;> decide
 
@@ -83,10 +88,9 @@ theorem fastValid : ∀ i : Fin 36, ValidHere fastBlk fwLeader (fastBlk i) := by
 def Dfast : Dag (Fin 9) (Fin 36) Unit where
   ids := Finset.univ
   block := fastBlk
-  leader := fwLeader
   complete := by decide
   valid := fun i _ => fastValid i
-  correct_single := by decide
+  no_equivocation := by decide
 
 /-! ### The votes
 
@@ -94,7 +98,7 @@ Seven validators vote for the round-0 leader block, two do not. Seven is
 `n − p`, so the fast path fires; the two abstainers are two short of the
 slow-path skip quorum of six. -/
 
-example : slotBlocks Dfast 0 = {0} := by decide
+example : slotBlocks fwSched Dfast 0 = {0} := by decide
 
 example : voters Dfast 0 = {0, 1, 2, 3, 4, 5, 6} ∧ nonVoters Dfast 0 = {7, 8} := by decide
 
@@ -119,7 +123,7 @@ example : SPCommit Dfast 0 :=
 example : DirectCommit Dfast 0 := Or.inl (by decide)
 
 /-- **The slot is not skipped**, by Lemma 6 rather than by search. -/
-example : ¬ DirectSkip Dfast 0 :=
+example : ¬ DirectSkip fwSched Dfast 0 :=
   no_directSkip_of_commit (l := 0) (by decide) (Or.inl (by decide))
 
 /-! ### The fast path's evidence
@@ -128,7 +132,7 @@ No round-2 block has seen an equivocation here, so FP-evidence is the
 weaker branch: `f + p − 1 = 3` parents voting, against the seven each of
 them has. -/
 
-example : ¬ ExposesEquivocation Dfast 18 := by decide
+example : ¬ ExposesEquivocationBy Dfast 18 (Dfast.block 0).creator := by decide
 
 example : FPEvidence Dfast 18 0 := by decide
 
@@ -141,21 +145,21 @@ example : ∀ b ∈ blocksAt Dfast 2, FPEvidence Dfast b 0 := by decide
 A round-3 block reaches a round-2 certificate in one step, which is the
 indirect rule's first route. -/
 
-example : IndirectCommit Dfast 27 0 0 :=
+example : IndirectCommit fwSched Dfast 27 0 0 :=
   ⟨by decide, Or.inl ⟨18, by decide, ReachesFrom.single (by decide), by decide⟩⟩
 
 /-- **And the rule settles by computation**, through the decidable form:
 `historyFrom` is reachability as a `Finset`, so a model can check the
 whole indirect rule rather than exhibit a path. -/
-example : IndirectCommitOn Dfast 27 0 0 := by decide
+example : IndirectCommitOn fwSched Dfast 27 0 0 := by decide
 
-example : IndirectCommit Dfast 27 0 0 :=
+example : IndirectCommit fwSched Dfast 27 0 0 :=
   indirectCommitOn_iff (by decide) |>.1 (by decide)
 
 /-- Anti-vacuity: the rule is not settled by the slot condition alone.
 No round-2 block is an anchor for its own slot, having nothing above it
 to reach. -/
-example : ¬ IndirectCommitOn Dfast 18 2 18 := by decide
+example : ¬ IndirectCommitOn fwSched Dfast 18 2 18 := by decide
 
 /-! ## `Dequiv` — the leader equivocates
 
@@ -191,24 +195,23 @@ def eqBlk : Fin 28 → Block (Fin 9) (Fin 28) Unit := fun i =>
       else {9, 10, 11, 12, 13, 16, 17},
     payload := () }
 
-theorem eqValid : ∀ i : Fin 28, ValidHere eqBlk fwLeader (eqBlk i) := by
+theorem eqValid : ∀ i : Fin 28, ValidHere eqBlk (eqBlk i) := by
   intro i
   refine ⟨?_, ?_, ?_, ?_⟩ <;> revert i <;> decide
 
 /-- The equivocating execution. Validator `0` is Byzantine, so
-`correct_single` still holds. -/
+`no_equivocation` still holds. -/
 def Dequiv : Dag (Fin 9) (Fin 28) Unit where
   ids := Finset.univ
   block := eqBlk
-  leader := fwLeader
   complete := by decide
   valid := fun i _ => eqValid i
-  correct_single := by decide
+  no_equivocation := by decide
 
 /-- The slot has two blocks, and they conflict. -/
-example : slotBlocks Dequiv 0 = {0, 27} ∧ Conflicting Dequiv 0 27 := by decide
+example : slotBlocks fwSched Dequiv 0 = {0, 27} ∧ Conflicting Dequiv 0 27 := by decide
 
-/-- The author of both is Byzantine — the only way `correct_single`
+/-- The author of both is Byzantine — the only way `no_equivocation`
 admits the pair. -/
 example : (Dequiv.block 0).creator ∉ (Correct : Finset (Fin 9)) := by decide
 
@@ -217,7 +220,7 @@ the slow-path quorum of six, and four abstentions against the skip
 quorum. -/
 example : voters Dequiv 0 = {0, 1, 2, 3, 4} ∧ voters Dequiv 27 = {5, 6} := by decide
 
-example : ¬ DirectCommit Dequiv 0 ∧ ¬ DirectCommit Dequiv 27 ∧ ¬ DirectSkip Dequiv 0 := by
+example : ¬ DirectCommit Dequiv 0 ∧ ¬ DirectCommit Dequiv 27 ∧ ¬ DirectSkip fwSched Dequiv 0 := by
   refine ⟨by decide, by decide, ?_⟩
   intro h
   exact absurd (h.1 0 (by decide)) (by decide)
@@ -226,20 +229,21 @@ example : ¬ DirectCommit Dequiv 0 ∧ ¬ DirectCommit Dequiv 27 ∧ ¬ DirectSk
 
 /-- Block `18` has seen the equivocation, and its counts meet the
 equivocating branch for one version and fail it for the other. -/
-example : ExposesEquivocation Dequiv 18 ∧
+example : ExposesEquivocationBy Dequiv 18 (Dequiv.block 0).creator ∧
     parentsVoting Dequiv 18 0 = {1, 2, 3, 4} ∧ parentsVoting Dequiv 18 27 = {5, 6} := by decide
 
 example : FPEvidence Dequiv 18 0 ∧ ¬ FPEvidence Dequiv 18 27 := by decide
 
 /-- Block `19` has not seen it, and the weaker branch applies. -/
-example : ¬ ExposesEquivocation Dequiv 19 ∧ parentsVoting Dequiv 19 0 = {0, 1, 2, 3, 4} := by
+example : ¬ ExposesEquivocationBy Dequiv 19 (Dequiv.block 0).creator ∧
+    parentsVoting Dequiv 19 0 = {0, 1, 2, 3, 4} := by
   decide
 
 example : FPEvidence Dequiv 19 0 ∧ ¬ FPEvidence Dequiv 19 27 := by decide
 
 /-- Block `20` has seen the equivocation and carries too few of either
 version: evidence for nothing in the slot. -/
-example : NonFPEvidence Dequiv 20 (slotBlocks Dequiv 0) := by decide
+example : NonFPEvidence Dequiv 20 (slotBlocks fwSched Dequiv 0) := by decide
 
 /-- **The validity clause on data.** Block `18` exposes the equivocation,
 so its parents exclude the leader's own round-1 block — `9`, which every
@@ -247,12 +251,13 @@ other round-2 block here carries. -/
 example : (9 : Fin 28) ∉ (Dequiv.block 18).refs ∧ (9 : Fin 28) ∈ (Dequiv.block 19).refs := by
   decide
 
-example : Dequiv.leader ((Dequiv.block 18).round - 2) ∉ parentSet Dequiv 18 :=
-  leader_not_parent_of_exposes (D := Dequiv) (b := 18) (by decide) (by decide) (by decide)
+example : (Dequiv.block 0).creator ∉ parentSet Dequiv 18 :=
+  exposed_not_parent (D := Dequiv) (b := 18) (by decide) (by decide)
 
-/-- And the leader of the slot is validator `0`, whose round-1 block is
-`9`: the parent block `18` had to drop. -/
-example : Dequiv.leader ((Dequiv.block 18).round - 2) = 0 ∧
+/-- And the equivocating author is validator `0`, whose round-1 block is
+`9`: the parent block `18` had to drop. It is also the slot's leader, but
+the rule no longer has to know that. -/
+example : fwLeader ((Dequiv.block 18).round - 2) = 0 ∧
     (Dequiv.block 9).creator = 0 := by decide
 
 /-! ## `Dskip` — the slot skipped
@@ -269,7 +274,7 @@ def skipBlk : Fin 27 → Block (Fin 9) (Fin 27) Unit := fun i =>
       else {9, 10, 11, 12, 13, 14, 15},
     payload := () }
 
-theorem skipValid : ∀ i : Fin 27, ValidHere skipBlk fwLeader (skipBlk i) := by
+theorem skipValid : ∀ i : Fin 27, ValidHere skipBlk (skipBlk i) := by
   intro i
   refine ⟨?_, ?_, ?_, ?_⟩ <;> revert i <;> decide
 
@@ -277,26 +282,25 @@ theorem skipValid : ∀ i : Fin 27, ValidHere skipBlk fwLeader (skipBlk i) := by
 def Dskip : Dag (Fin 9) (Fin 27) Unit where
   ids := Finset.univ
   block := skipBlk
-  leader := fwLeader
   complete := by decide
   valid := fun i _ => skipValid i
-  correct_single := by decide
+  no_equivocation := by decide
 
-example : slotBlocks Dskip 0 = {0} ∧ voters Dskip 0 = ∅ := by decide
+example : slotBlocks fwSched Dskip 0 = {0} ∧ voters Dskip 0 = ∅ := by decide
 
 example : SPSkip Dskip 0 ∧ nonVoters Dskip 0 = {0, 1, 2, 3, 4, 5, 6, 7, 8} := by decide
 
-example : ∀ b ∈ blocksAt Dskip 2, NonFPEvidence Dskip b (slotBlocks Dskip 0) := by decide
+example : ∀ b ∈ blocksAt Dskip 2, NonFPEvidence Dskip b (slotBlocks fwSched Dskip 0) := by decide
 
 /-- The direct skip, on the certificates of validators `0` to `5`. -/
-example : DirectSkip Dskip 0 :=
+example : DirectSkip fwSched Dskip 0 :=
   ⟨by decide, {0, 1, 2, 3, 4, 5}, by decide, by decide⟩
 
 example : ¬ DirectCommit Dskip 0 := by decide
 
 /-- **No anchor can reverse it**, whatever it reaches: the skip pattern
 denies both routes of the indirect rule. -/
-example (A : Fin 27) : ¬ IndirectCommit Dskip A 0 0 :=
+example (A : Fin 27) : ¬ IndirectCommit fwSched Dskip A 0 0 :=
   no_indirectCommit_of_directSkip ⟨by decide, {0, 1, 2, 3, 4, 5}, by decide, by decide⟩
 
 /-! ## The commit sequence and the delivered order
@@ -370,7 +374,10 @@ def syncBlk : Fin 27 → Block (Fin 9) (Fin 27) Unit := fun i =>
       else {9, 10, 11, 12, 13, 14, 15, 16, 17},
     payload := () }
 
-theorem syncValid : ∀ i : Fin 27, ValidHere syncBlk syncLeader (syncBlk i) := by
+/-- And the synchronous witness's. -/
+def syncSched : Slots (Fin 9) := Slots.identity syncLeader
+
+theorem syncValid : ∀ i : Fin 27, ValidHere syncBlk (syncBlk i) := by
   intro i
   refine ⟨?_, ?_, ?_, ?_⟩ <;> revert i <;> decide
 
@@ -378,10 +385,9 @@ theorem syncValid : ∀ i : Fin 27, ValidHere syncBlk syncLeader (syncBlk i) := 
 def Dsync : Dag (Fin 9) (Fin 27) Unit where
   ids := Finset.univ
   block := syncBlk
-  leader := syncLeader
   complete := by decide
   valid := fun i _ => syncValid i
-  correct_single := by decide
+  no_equivocation := by decide
 
 /-- No block sits above round `2`, which is what makes coverage a finite
 check. -/
@@ -406,7 +412,7 @@ theorem syncPopulated : ∀ r ≤ 2,
   interval_cases r <;> decide
 
 /-- The round-0 leader block is `2`, and its author is correct. -/
-example : (2 : Fin 27) ∈ slotBlocks Dsync 0 ∧
+example : (2 : Fin 27) ∈ slotBlocks syncSched Dsync 0 ∧
     (Dsync.block 2).creator ∈ (Correct : Finset (Fin 9)) := by decide
 
 /-- **Lemma 18 on data**: every correct round-1 block votes for it. -/
@@ -429,7 +435,7 @@ and here they are nine. -/
 example : FastCommit Dsync 2 := by decide
 
 /-- And the slot is not skipped, by Lemma 6 rather than by search. -/
-example : ¬ DirectSkip Dsync 0 :=
+example : ¬ DirectSkip syncSched Dsync 0 :=
   no_directSkip_of_commit (l := 2) (by decide) (Or.inl (by decide))
 
 /-! ## The rotation
@@ -489,17 +495,20 @@ def chooseW : Fin 4 → ℕ → Option (Fin 4) := fun _ r => if r = 0 then some 
 
 /-- **The anchor of slot `0` is slot `3`**, and nothing else: the slots
 between are skipped, and `3` is not. -/
-theorem anchorW : ∀ a, Anchor decW 0 a → a = 3 := by
+theorem anchorW : ∀ a, Anchor (fun r a => r + 2 < a) decW 0 a → a = 3 := by
   rintro a ⟨h1, h2, h3⟩
+  have h1' : (0 : ℕ) + 2 < a := h1
   by_contra hne
   have hlt : 3 < a := by omega
-  have := h3 3 (by omega) hlt
+  have := h3 3 (show (0:ℕ) + 2 < 3 by omega) hlt
   simp [decW] at this
 
-example : Anchor decW 0 3 := ⟨by omega, by decide, by intro a' h1 h2; omega⟩
+example : Anchor (fun r a => r + 2 < a) decW 0 3 :=
+  ⟨by show (0:ℕ) + 2 < 3; omega, by decide,
+   by intro a' h1 h2; have : (0:ℕ) + 2 < a' := h1; omega⟩
 
 /-- **The reverse pass is followed.** -/
-theorem wellFormedW : WellFormed dcW dsW chooseW decW where
+theorem wellFormedW : WellFormed (fun r a => r + 2 < a) dcW dsW chooseW decW where
   direct_commit r l := by
     rintro ⟨h3, h5, rfl⟩
     simp only [decW, if_neg (by omega : ¬ r = 0), if_neg (by omega : ¬ r ≤ 2), if_pos h5]
@@ -532,7 +541,7 @@ theorem wellFormedW : WellFormed dcW dsW chooseW decW where
       · exact absurd ⟨0, by exact ⟨by omega, by omega, rfl⟩⟩ hdc
       · exact absurd ⟨0, by exact ⟨by omega, by omega, rfl⟩⟩ hdc
     · -- above the decided range no anchor is committed
-      have h1 : (6 : ℕ) ≤ a := by have := hanc.1; omega
+      have h1 : (6 : ℕ) ≤ a := by have : r + 2 < a := hanc.1; omega
       rw [show decW a = Verdict.undecided by
         simp only [decW, if_neg (by omega : ¬ a = 0), if_neg (by omega : ¬ a ≤ 2),
           if_neg (by omega : ¬ a ≤ 5)]] at hcom
@@ -541,7 +550,8 @@ theorem wellFormedW : WellFormed dcW dsW chooseW decW where
     intro hdc hds hdecided
     rcases Nat.lt_or_ge r 6 with hr | hr
     · interval_cases r
-      · exact ⟨3, by omega, by decide, by intro a' h1 h2; omega⟩
+      · exact ⟨3, show (0:ℕ) + 2 < 3 by omega, by decide,
+          by intro a' h1 h2; have : (0:ℕ) + 2 < a' := h1; omega⟩
       · exact absurd (Or.inl rfl) hds
       · exact absurd (Or.inr rfl) hds
       · exact absurd ⟨0, by exact ⟨by omega, by omega, rfl⟩⟩ hdc
@@ -554,7 +564,7 @@ theorem wellFormedW : WellFormed dcW dsW chooseW decW where
 /-- **Lemma 23 on data.** Slots `3`, `4` and `5` are a committed triple,
 and slot `0` lies below it, so the reverse pass decides it. -/
 example : decW 0 ≠ Verdict.undecided :=
-  lemma23 wellFormedW (show (0 : ℕ) < 3 by omega)
+  lemma23 (fun _ _ => Iff.rfl) wellFormedW (show (0 : ℕ) < 3 by omega)
     (fun s h1 h2 => by interval_cases s <;> exact ⟨by decide, by decide⟩)
 
 /-- Anti-vacuity: the triple is genuinely needed. Nothing above `5` is
@@ -599,15 +609,13 @@ has two blocks, and this view sees one. -/
 it, directly or through a parent. -/
 def Vpart : Finset (Fin 28) := Finset.univ \ {14, 15, 18, 20, 27}
 
-theorem isViewPart : IsView Dequiv Vpart := by
-  constructor
-  · decide
-  · decide
+/-- As a view of `Dequiv`. -/
+def VpartView : Dequiv.View := ⟨Vpart, by decide, by decide⟩
 
 /-- **The slot looks different from inside.** The universe has two blocks
 of slot `0`; the view has one. -/
-example : slotBlocks Dequiv 0 = {0, 27} ∧
-    slotBlocks (restrict Dequiv Vpart isViewPart) 0 = {0} := by decide
+example : slotBlocks fwSched Dequiv 0 = {0, 27} ∧
+    slotBlocks fwSched (VpartView.toRecord) 0 = {0} := by decide
 
 /-- The view is smaller, and genuinely so. -/
 example : (27 : Fin 28) ∈ Dequiv.ids ∧ (27 : Fin 28) ∉ Vpart := by decide
@@ -628,17 +636,17 @@ example {c : Fin 28} (hc : c ∈ Dequiv.ids) (h0 : (0 : Fin 28) ∈ (Dequiv.bloc
 /-- What a block's parents say does not change with the view, which is
 why FP-evidence transfers: block `19` reads the same parents either
 way. -/
-example : parentsVoting (restrict Dequiv Vpart isViewPart) 19 0 = parentsVoting Dequiv 19 0 :=
+example : parentsVoting (VpartView.toRecord) 19 0 = parentsVoting Dequiv 19 0 :=
   rfl
 
 /-- And the rules the view can evaluate agree with the universe's where
 the view holds the rounds they read. On `Dsync`, which holds everything,
 the whole DAG is a view and the direct commit is seen there. -/
-theorem isViewFull : IsView Dsync Finset.univ :=
-  ⟨fun _ _ => Finset.mem_univ _, fun _ _ _ _ => Finset.mem_univ _⟩
+def fullView : Dsync.View :=
+  ⟨Finset.univ, fun _ _ => Finset.mem_univ _, fun _ _ _ _ => Finset.mem_univ _⟩
 
-example : DirectCommit (restrict Dsync Finset.univ isViewFull) 2 :=
-  directCommit_of_holds (hV := isViewFull) (fun _ _ => Finset.mem_univ _)
+example : DirectCommit fullView.toRecord 2 :=
+  directCommit_of_holds (V := fullView) (fun _ _ => Finset.mem_univ _)
     (fun _ _ => Finset.mem_univ _) (Or.inl (by decide))
 
 /-! ## The pass, on data
@@ -654,29 +662,28 @@ theorem dfast_horizon : ∀ b ∈ Dfast.ids, (Dfast.block b).round ≤ 3 := by d
 /-- **The pass commits slot `0`**, by its direct rule and whatever
 tie-break the validator applies. -/
 example (choose : Fin 36 → ℕ → Option (Fin 36)) :
-    decOf Dfast choose 3 0 = Verdict.commit 0 :=
-  (wellFormed_decOf dfast_horizon choose).direct_commit 0 0 ⟨by decide, Or.inl (by decide)⟩
+    decOf fwSched (fun r a => r + 2 < a) Dfast choose 3 0 = Verdict.commit 0 :=
+  (wellFormed_decOf dfast_horizon (fun _ _ h => by omega) (fun _ h => h) choose).direct_commit 0 0 ⟨by decide, Or.inl (by decide)⟩
 
 /-- And decides nothing above the horizon, which is the finiteness Lemma
 12 consumes. -/
 example (choose : Fin 36 → ℕ → Option (Fin 36)) (s : ℕ) (hs : 3 < s) :
-    decOf Dfast choose 3 s = Verdict.undecided :=
+    decOf fwSched (fun r a => r + 2 < a) Dfast choose 3 s = Verdict.undecided :=
   decOf_of_gt hs
 
 /-- The skipping execution decides its slot the other way, by the same
 route. -/
 example (choose : Fin 27 → ℕ → Option (Fin 27)) :
-    decOf Dskip choose 2 0 = Verdict.skip :=
-  (wellFormed_decOf (by decide) choose).direct_skip 0
+    decOf fwSched (fun r a => r + 2 < a) Dskip choose 2 0 = Verdict.skip :=
+  (wellFormed_decOf (by decide) (fun _ _ h => by omega) (fun _ h => h) choose).direct_skip 0
     ⟨by decide, {0, 1, 2, 3, 4, 5}, by decide, by decide⟩
 
 /-! ## The arc's axioms -/
 
-#print axioms LeanDag.FinWhale.lemma12
+#print axioms LeanDag.FinWhale.finWhaleLaws
+#print axioms LeanDag.FinWhale.decided_of_wellFormed
 #print axioms LeanDag.FinWhale.lemma22
 #print axioms LeanDag.FinWhale.agreement_of_commits
-#print axioms LeanDag.FinWhale.safety_of_views
-#print axioms LeanDag.FinWhale.agreement_of_views
 
 end FinWhale
 

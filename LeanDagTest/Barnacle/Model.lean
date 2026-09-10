@@ -1,9 +1,10 @@
-import LeanDagTest.Model
+import LeanDagTest.Mysticeti.Model
 import LeanDagTest.Odontoceti.Model
 import LeanDag.Barnacle.Model.Run
-import LeanDag.Barnacle.Mysticeti.Proof
+import LeanDagTest.Barnacle.Rules.Mysticeti.Proof
 import LeanDag.Barnacle.Helpers.Schedule
-
+import LeanDag.Barnacle.Helpers.Cover
+import LeanDag.Barnacle.Healthy.Proof
 /-!
 # Barnacle witnesses — the definitions on data
 
@@ -45,7 +46,7 @@ namespace LeanDagTest
 
 namespace Barnacle
 
-set_option maxRecDepth 2000000
+set_option maxRecDepth 2048
 
 open LeanDag LeanDag.Barnacle
 
@@ -142,8 +143,8 @@ example : certificates U7 11 2 = ∅ := by decide
 -- committed there; on the window its only certifier is the anchor itself,
 -- one short of the quorum's three, and it is not.
 example : bnRule.IsLeaderBlock bnSched2 U7 7 12 := by decide
-example : certificatesIn U7 V7 12 3 = {20, 21, 22} := by decide
-example : certificatesIn U7 (historyViewOf U7 20 (by decide)) 12 3 = {20} := by decide
+example : certificates U7 12 3 ∩ V7.ids = {20, 21, 22} := by decide
+example : certificates U7 12 3 ∩ (U7.historyView 20 (by decide)).ids = {20} := by decide
 example : bnRule.SlotDirect bnSched2 U7 (bnRule.full U7) 7 := by decide
 example : ¬ bnRule.SlotDirect bnSched2 U7 (bnRule.historyView U7 20 (by decide)) 7 := by decide
 -- Slot `(3, 0)`'s candidate, block `15`, has no certificate anywhere: it
@@ -172,17 +173,61 @@ example : Aimd.update bnP 1 3 false = (1, 4) := by decide
 -- On `U7` at count `2` the window is unhealthy (`100 · 3 < 96 · 4`); at
 -- count `4` too (`100 · 5 < 96 · 8`); at count `1` it is healthy
 -- (`100 · 2 ≥ 96 · 2`).
-example : Aimd.rule bnRule bnP bnLeader bnWin 2 0 U7 20 = (1, 1) := by decide
-example : Aimd.rule bnRule bnP bnLeader bnWin 4 0 U7 20 = (3, 1) := by decide
-example : Aimd.rule bnRule bnP bnLeader bnWin 1 0 U7 20 = (2, 0) := by decide
+example : Aimd.rule bnRule bnP bnLeader bnWin 2 0 U7 (View.full U7) 20 = (1, 1) := by decide
+
+/-! ## BN12 on data: a healthy window, and the step it forces
+
+At count `1` the anchor `20` scores both of its scoring rounds — `d = 3`
+and `d = 4`, the wave and the interval — so the window is healthy in the
+sense of `Healthy.WindowHealthy`, and BN12 turns that into the count's
+rise with no appeal to `decide` on the rule itself. -/
+
+theorem u7_window_healthy :
+    Healthy.WindowHealthy bnRule bnP bnLeader bnWin U7 20 (by decide) 1
+      (by decide) (by decide) := by
+  intro d h1 h2 l hl
+  change 3 ≤ d at h1
+  change d ≤ 4 at h2
+  change l < 1 at hl
+  interval_cases d <;> interval_cases l <;> decide
+
+/-- **BN12b applied**: the rule raises the count to `2` and resets the
+back-off, because the window is healthy — not because the arithmetic was
+computed. -/
+example : Aimd.rule bnRule bnP bnLeader bnWin 1 0 U7 (View.full U7) 20 = (2, 0) :=
+  (Healthy.holds (Fin 4) (Fin 24) Unit bnRule bnP bnLeader bnWin
+      MysticetiProperties.commitsDirect).2.1 U7 20 (by decide) 1
+    (by decide) (by decide) 0 (View.full U7) (by decide) (by decide) (by decide)
+    u7_window_healthy
+
+/-- And `observed` meets `expected` there, which is BN12a. -/
+example : expected bnRule bnP 1 ≤ observed bnRule bnP bnLeader bnWin U7 20 1
+    (by decide) (by decide) :=
+  (Healthy.holds (Fin 4) (Fin 24) Unit bnRule bnP bnLeader bnWin
+      MysticetiProperties.commitsDirect).1 U7 20 (by decide) 1
+    (by decide) (by decide) (by decide) (by decide) u7_window_healthy
+
+/-- **BN12c applied**: every slot the healthy window counted is a
+commit *verdict*, not merely a slot whose direct predicate held. -/
+example : ∀ d, bnRule.waveLength ≤ d → d ≤ bnP.interval → ∀ l, l < 1 →
+    ∃ L, bnRule.Decided (Sched bnLeader bnWin 1 (by decide) (by decide))
+      (bnRule.historyView U7 20 (by decide)) (1 * ((bnRule.block U7 20).round - d) + l)
+      (some L) :=
+  (Healthy.holds (Fin 4) (Fin 24) Unit bnRule bnP bnLeader bnWin
+      MysticetiProperties.commitsDirect).2.2
+    U7 20 (by decide) 1 (by decide) (by decide) u7_window_healthy
+
+#print axioms LeanDag.Barnacle.Healthy.holds
+example : Aimd.rule bnRule bnP bnLeader bnWin 4 0 U7 (View.full U7) 20 = (3, 1) := by decide
+example : Aimd.rule bnRule bnP bnLeader bnWin 1 0 U7 (View.full U7) 20 = (2, 0) := by decide
 -- At the floor, an unhealthy window (anchor `12`, nothing scores at
 -- count `1`) leaves the count at one and doubles the back-off.
-example : Aimd.rule bnRule bnP bnLeader bnWin 1 3 U7 12 = (1, 4) := by decide
+example : Aimd.rule bnRule bnP bnLeader bnWin 1 3 U7 (View.full U7) 12 = (1, 4) := by decide
 -- Outside `[1, maxLeaders]` the rule returns the initial state.
-example : Aimd.rule bnRule bnP bnLeader bnWin 5 0 U7 20 = (1, 0) := by decide
+example : Aimd.rule bnRule bnP bnLeader bnWin 5 0 U7 (View.full U7) 20 = (1, 0) := by decide
 
 -- The constant rule reconfigures nothing.
-example : constRule bnRule 2 3 U7 20 = (2, 3) := by decide
+example : constRule bnRule 2 3 U7 (View.full U7) 20 = (2, 3) := by decide
 
 -- The ledger of a slot interval: `lo` inclusive, `hi` exclusive, skips dropped.
 example : ledgerOf (fun k => if k = 3 then some (7 : Fin 24) else if k = 5 then some 9 else none)
@@ -212,8 +257,8 @@ example : observed bnRule6 bnP6 bnLeader6 bnWin6 Uodo 20 6 (by decide) (by decid
   decide
 example : expected bnRule6 bnP6 6 = 6 := by decide
 -- Healthy at every count: the count rises, and stays capped at six.
-example : Aimd.rule bnRule6 bnP6 bnLeader6 bnWin6 1 0 Uodo 20 = (2, 0) := by decide
-example : Aimd.rule bnRule6 bnP6 bnLeader6 bnWin6 6 0 Uodo 20 = (6, 0) := by decide
+example : Aimd.rule bnRule6 bnP6 bnLeader6 bnWin6 1 0 Uodo (View.full Uodo) 20 = (2, 0) := by decide
+example : Aimd.rule bnRule6 bnP6 bnLeader6 bnWin6 6 0 Uodo (View.full Uodo) 20 = (6, 0) := by decide
 
 /-! ## Slots against blocks: the equivocator of `U6`
 
@@ -238,10 +283,10 @@ commit verdict, on the full view `V7` and on the smaller `V7small`. What
 the witness exercises is the proved statement, not a restatement. -/
 
 example : bnRule.Decided bnSched2 V7 7 (some 12) :=
-  (Mysticeti.holds (Fin 4) (Fin 24) Unit).decided_of_directCommitIn bnSched2 V7 7 12
+  (Mysticeti.holds (Fin 4) (Fin 24) Unit).commitsDirect bnSched2 _ V7 7 12
     (by decide) (by decide)
 example : bnRule.Decided bnSched1 V7small 2 (some 10) :=
-  (Mysticeti.holds (Fin 4) (Fin 24) Unit).decided_of_directCommitIn bnSched1 V7small 2 10
+  (Mysticeti.holds (Fin 4) (Fin 24) Unit).commitsDirect bnSched1 _ V7small 2 10
     (by decide) (by decide)
 
 /-! ## The run, at height one

@@ -1,19 +1,13 @@
 import LeanDag.Hybrid.Liveness
 import LeanDag.Odontoceti.Rules
-
 /-!
 # Conservativity: the crash-free hybrid is Odontoceti
 
 H8. At `fc = 0` the hybrid thresholds are the pure-Byzantine two-round
-ones — `q = n − f`, `kRel = n − 3f`, the admissible interval anchored
-at `2f + 1` — and the fault models identify: every `Faults5` committee
-is a crash-free hybrid committee (`Faults5.toHybrid`), and the two
-derived `Faults` instances are *equal* (`toHybrid_toFaults`), so a
-block universe over one is a block universe over the other with no
-transport. The hybrid rule bodies at these parameters are syntactically
-the Odontoceti ones — `q` supporters, `q` blamers, `k` in-cone
-authors — which is what the plan meant by conservativity being
-definitional rather than a theorem with content.
+ones, and the fault models identify definitionally
+(`Faults5.toHybrid`, `toHybrid_toFaults`), so a block universe over one
+is a block universe over the other with no transport, and the hybrid
+rule bodies are syntactically the Odontoceti ones.
 -/
 
 namespace LeanDag
@@ -40,6 +34,19 @@ theorem kRel_eq_of_fc_zero (h : H.fc = 0) :
 theorem kTight_eq_of_fc_zero (h : H.fc = 0) :
     kTight Validator = 2 * H.fb + 1 := by
   unfold kTight; omega
+
+/-- **At `fc = 0` the strengthened clause is free.** With no crash
+class, honest *is* correct, so the base structure's `no_equivocation`
+already yields `HonestNoEquiv`; the hybrid model's one new assumption
+restricts nothing in the crash-free case. -/
+theorem honestNoEquiv_of_fc_zero {BlockId Payload : Type*} (h : H.fc = 0)
+    (U : BlockUniverse Validator BlockId Payload) : HonestNoEquiv U := by
+  intro i hi j hj hbyz hc hr
+  refine U.no_equivocation i hi j hj ?_ hc hr
+  have hcrash : H.crash = ∅ :=
+    Finset.card_eq_zero.mp (Nat.le_zero.mp (h ▸ H.card_crash))
+  rw [mem_correct, hybrid_byzantine, hcrash, Finset.union_empty]
+  exact mem_honest.mp hbyz
 
 end Collapse
 

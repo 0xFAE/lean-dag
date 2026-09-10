@@ -70,7 +70,7 @@ move the committee — `n ≥ 5f+1` for two-round commitment,
   a spread of ten and collapses to exactly three. A valid block cannot
   outrun the honest schedule, so the author-blind rule a deployment runs
   is safe (`exists_honest_floor`).
-- **The view a validator holds** (`LeanDag/PaceDelivery.lean`): the
+- **The view a validator holds** (`LeanDag/Mysticeti/PaceDelivery.lean`): the
   commit rules are view-relative and the pacing line reasons about
   time-indexed holdings; the two are now joined. A validator's holdings
   *are* a view (`viewAt_ids`), which is what makes liveness local; and a
@@ -242,7 +242,7 @@ move the committee — `n ≥ 5f+1` for two-round commitment,
   number of leaders per round with an additive-increase,
   multiplicative-decrease rule — proved safe and live over an explicit
   interface rendering the paper's assumptions A1–A4, and instantiated
-  on Mysticeti, Odontoceti and Nemo-Nemo. Safety is agreement of the
+  on Mysticeti, Odontoceti, Nemo-Nemo and Orcaella. Safety is agreement of the
   configuration sequence and of the ledger for **any** update rule,
   under no synchrony or fairness hypothesis (`Agreement.holds`,
   `Ledger.holds`): the algorithm decides under the count in force and
@@ -260,7 +260,13 @@ move the committee — `n ≥ 5f+1` for two-round commitment,
   paper's A4 for its schedule, proved. Seven findings for the paper,
   among them that its liveness clause needs a margin above the slot and
   that Nemo-Nemo's slack is what a majority may miss, not the crash
-  bound. The arc is the third under the statement/proof partition.
+  bound. The Orcaella instantiation holds at **every admissible
+  indirect threshold**, over the subtype of universes whose honest —
+  crash-prone included — class does not equivocate, at slack
+  `fb + fc` and gap `n + 1`; its witnesses include one DAG the
+  interval's two ends decide differently, the twin-canonicity case at
+  the genuinely mixed committee, and the slack proved exact. The arc
+  is the third under the statement/proof partition.
 
 - **Hydrozoan** (`LeanDag/Hydrozoan/`): the dual-path commit rule of
   the Hydrozoan paper under the hybrid fault model of DagHydrangea —
@@ -309,37 +315,6 @@ move the committee — `n ≥ 5f+1` for two-round commitment,
   A peer arc importing the Hydrozoan arc read-only, and the second
   developed in `asonnino/mysticeti`.
 
-- **RedSnapper** (`LeanDag/RedSnapper/`): the owned-object fast path of
-  the RedSnapper paper ("Snapper"), at both of its committees, over an
-  uncertified DAG whose consensus is a black-box sequence of committed
-  anchors. Validators publish a *stance* per object version in the
-  blocks they already produce; transaction, skip and unlock
-  certificates are read from the DAG; at `n ≥ 3f + 1` the univalent
-  conflicts are decided from the DAG and the bivalent one at an anchor,
-  while at `n ≥ 5f + 1` a validator revokes an earlier vote on
-  `2f + 1` opposing stances, a common coin coordinates the moves, and a
-  freeze-and-count election at an anchor bounds the resolution. The
-  revocation arithmetic is stated once, protocol-independently, as the
-  seam both protocols consume: the threshold `n + f − C + 1`, tight for
-  `f ≤ C ≤ n`, is *exposed* by every quorum exactly when `n ≥ 5f + 1`.
-  Safety at `3f + 1` consumes only stance monotonicity, verdicts agree
-  across views and routes, and the liveness pair closes under the
-  structural synchrony. The `5f + 1` layer's headline is that its
-  safety needs no `5f + 1`: every certificate exclusion closes at
-  `n ≥ 3f + 1`, and the wide committee is consumed exactly where the
-  paper's own seam says — exposure, the frozen set's overlap with a
-  hidden commit, and the coin round's universal movability, each gate
-  refuted by witness at the small committee. The coin is modelled as
-  its output, with the success probability as a cardinality — at least
-  `2f + 1` good targets, fixed measurably before a post-round draw —
-  and the recovery election's min-hash tie-break is a linear-order
-  parameter that provably carries no safety weight. Twenty-one findings
-  for the paper, among them the corrected trichotomy of conflict
-  resolution, the algorithm-versus-lemma-text refutation form, and that
-  the literal `4f + 1` threshold hides an *upper* bound on `n` that
-  parameterising by `n − f` removes. The arc consumes nothing from the
-  core; its record is `docs/red-snapper.md`.
-
 Every definition is exercised on concrete models by `decide` before
 anything is proved from it, and every principal result depends on
 exactly Lean's three standard axioms (`propext`, `Classical.choice`,
@@ -362,30 +337,59 @@ the set of declarations changes. `make help` lists them.
 
 ## Layout
 
+**Four kinds of arc.** Each directory under `LeanDag/` is one of them,
+and its entry file says which:
+
+| kind | what it varies | arcs |
+|---|---|---|
+| **commit rule** | the decision relation | `Mysticeti/` (the core), `Odontoceti/`, `Nemo/`, `Hybrid/`, `MahiMahi/`, `Hydrozoan/`, `OptimalHydrozoan/`, `FinWhale/`, and the two refuted rules `BlackMarlin/` and `Minnow/` |
+| **universe transform** | the DAG, owing a witness that it does so lawfully | `GC/` (the cut), `SafeSkip/` (the fill), re-genesis |
+| **schedule mechanism** | the `Slots` a rule runs on, and no universe at all | `Barnacle/` (how many leaders a round has), `Adaptive/` (which validators lead), `Reactive/` (when a validator builds), `Timed/` (the full-timeout baseline) |
+| **analysis** | nothing — it measures a DAG rather than deciding on one | `DoS/`, `Quality/`, `Network/` |
+
+`Common/` is the substrate all four read; `Properties/` is the contract
+a commit rule meets and the other three consume; `Integration/` is what
+pairs two kinds at once — a schedule over a rule, or two transforms
+composed. A commit rule reads in four parts, and its files are named for
+them: the universe and the rule under `Model/`, what it shows in
+`Properties.lean` or `Carrier.lean`, and what it earns in `Record.lean`.
+
 - `LeanDag/` — theorem/definition source: the core DAG and Mysticeti
   development at the top level, with the pacing structures in
-  `ViewPace.lean` and the delivery layer they induce in
-  `PaceDelivery.lean`; `Causality.lean` and `Participation.lean` hold the
+  `Mysticeti/ViewPace.lean` and the delivery layer they induce in
+  `Mysticeti/PaceDelivery.lean`. `Common/` (twenty files) holds what
+  every rule shares: `BlockRecord.lean` is the one universe shape every
+  rule instantiates, with the generic cut, fill and re-genesis built
+  against it once; `Causality.lean` and `Participation.lean` hold the
   fault-agnostic vocabulary — reachability, the finite cone, production
-  and coverage — stated over the raw block data, so the Byzantine and
-  crash universes instantiate one set of definitions rather than
-  restating them. The arcs are in subdirectories (`Quality/` —
+  and coverage — stated over the raw block data beneath it; `Anchored/`,
+  `Support.lean`, `Rules.lean` and `Ledger.lean` hold the generic
+  anchored-rule interface, the counting arguments a support discharges,
+  the five rule combinators, and the ledger a decided sequence assembles
+  into. `Properties/` states the target properties themselves
+  (`DagRule`, `Agree`, `Commit`, `Band`, `Sustain`, `Truncate`, …) and
+  the generic mechanism theorems every carrier gets for free
+  (`Properties/Arcs/`); `Timed/` holds the timed model built on top —
+  coverage, and the bridge from synchrony into certification — kept
+  apart from `Properties/` since it is timing-specific
+  (`scripts/check-arc-holes.py` enforces the separation). The arcs are
+  in subdirectories (`Quality/` —
   chain quality; `DoS/` — equivocation and the novelty budget; `GC/` —
   garbage collection; `Odontoceti/` — the two-round protocol;
   `Reactive/` — the reactive schedule; `SafeSkip/` — crash recovery in
-  one message; `Adaptive/` — adaptive leader schedules; `Hybrid/` —
-  Byzantine and crash faults apart; `Nemo/` — crash-fault consensus at
-  a majority quorum; `FinWhale/` — the fast path at
-  `n = 3f + 2p − 1`, whose `Model/` holds every definition of the
-  protocol and no proof; `MahiMahi/` — the asynchronous rule at wave `w`,
-  `BlackMarlin/` — the three-round rule with an anchor every round, and
-  `Barnacle/` — the adaptive leader count over an interface for the
-  three base rules, `Hydrozoan/` — the dual-path rule under hybrid
-  faults, with its own fault model and universe, and
-  `OptimalHydrozoan/` — its fast path at Hydrangea's bound, a peer arc
-  importing the first, and `RedSnapper/` — the owned-object fast path
-  at `3f + 1` and `5f + 1`, with its own model of stances over an
-  uncertified DAG, all under a statement/proof partition (`Model/`, `<Result>/Statement.lean`,
+  one message; `Adaptive/` — adaptive leader schedules, generalised over
+  any `Properties.DagRule`; `Hybrid/` — Byzantine and crash faults
+  apart; `Nemo/` — crash-fault consensus at a majority quorum;
+  `Minnow/` — the minimal commit rule and its counterexamples;
+  `FinWhale/` — the fast path at `n = 3f + 2p − 1`, whose `Model/` holds
+  every definition of the protocol and no proof; `MahiMahi/` — the
+  asynchronous rule at wave `w`, `BlackMarlin/` — the three-round rule
+  with an anchor every round, and `Barnacle/` — the adaptive leader
+  count over an interface for the four base rules, `Hydrozoan/` — the
+  dual-path rule under hybrid faults, with its own fault model and
+  universe, and `OptimalHydrozoan/` — its fast path at Hydrangea's
+  bound, a peer arc importing the first, all under a statement/proof
+  partition (`Model/`, `<Result>/Statement.lean`,
   `<Result>/Proof.lean`); `Network/` — the composed
   denial-of-service capstones; `Integration/` — how the arcs compose).
 - `LeanDag.lean` — root import file.
@@ -398,11 +402,15 @@ the set of declarations changes. `make help` lists them.
   and `depgraph.py` extract and draw the support diagrams
   (`docs/depgraph/README.md`); `svg2pdf.sh` renders them to PDF;
   `extract-decls.py` reads every declaration with its docstring and
-  statement, and `gen-reference.py` regenerates the report's reference
-  appendices from it; `audit-report.py` checks the report's
+  statement into `docs/decls.json`, and `gen-reference.py` regenerates
+  the report's reference appendices from it, selecting the declarations the body and the
+  statement index name; `audit-report.py` checks the report's
   cross-references, its Lean identifiers, and every displayed statement
-  verbatim against the compiled source. Regeneration is deterministic,
-  so regenerate-and-diff is the pre-merge check. `check-arc-holes.py` enforces the statement/proof partition of the arcs that adopt it, and `black-marlin-figure.py` draws the execution that refutes Agreement (`docs/figures/`).
+  verbatim against the compiled source. `docs/decls.json` and
+  `docs/depgraph/deps.tsv` are extracted, not tracked; a fresh clone
+  builds, then runs the two extractors before the audits. Regeneration
+  is deterministic,
+  so regenerate-and-diff is the pre-merge check. `check-arc-holes.py` enforces the statement/proof partition of the arcs that adopt it; `audit-rounds.py` closes each protocol's decision relation over the dependency graph and checks that no rule reads an absolute round, which is what the offset band needs (`docs/target-properties.md` §3.4c); `audit-conformance.py` recomputes which protocols have shown which properties (§11.2); and `black-marlin-figure.py` draws the execution that refutes Agreement (`docs/figures/`).
 
 ## Documents
 
@@ -410,23 +418,22 @@ the set of declarations changes. `make help` lists them.
 |---|---|
 | [`docs/report.md`](docs/report.md) | **the entry point**: the full report — model, commit rule, trust boundary (including what the adversary may do), safety, liveness on view convergence, the extension arcs, satisfiability, mechanisation — plus generated reference appendices giving **every definition and public theorem verbatim** and an index of the internal lemmas |
 | [`docs/spec.md`](docs/spec.md) | the safety design record |
-| [`docs/liveness.md`](docs/liveness.md) | the liveness design record, and eventual DAG synchrony |
-| [`docs/liveness-routes.md`](docs/liveness-routes.md) | why one liveness route was kept and the others deleted, and what the later clause changes cost |
-| [`docs/pipelining-and-multi-leader.md`](docs/pipelining-and-multi-leader.md) | the schedule generalization: eligibility, runs, pipelined commits |
 | [`docs/chain-quality.md`](docs/chain-quality.md) | chain quality: coverage without synchrony, inclusion with it |
 | [`docs/dos-equivocation-and-growth.md`](docs/dos-equivocation-and-growth.md) | equivocation, exposure, view growth, and the novelty budget |
 | [`docs/garbage.md`](docs/garbage.md) | the horizon: truncation, bounded storage, bootstrap without consensus |
 | [`docs/odontoceti.md`](docs/odontoceti.md) | the two-round protocol: the generalized thresholds, and the findings |
-| [`docs/adaptive-leaders.md`](docs/adaptive-leaders.md) | adaptive leader schedules: the design record and theorem plan |
-| [`docs/hybrid-plan.md`](docs/hybrid-plan.md) | hybrid fault tolerance: the design record and theorem plan |
+| [`docs/adaptive-leaders.md`](docs/adaptive-leaders.md) | adaptive leader schedules: the design record, built and since generalised to `Adaptive.Policy` over any rule |
+| [`docs/hybrid-plan.md`](docs/hybrid-plan.md) | hybrid fault tolerance: the design record, built, kept as the reasoning behind report §14 |
 | [`docs/mahi-mahi.md`](docs/mahi-mahi.md) | the asynchronous rule at wave `w`: the clause, and the statement/proof partition |
 | [`docs/black-marlin.md`](docs/black-marlin.md) | the three-round commit rule: the link clause, the run of two, what the reactive exit costs, agreement, the delivered order the descent computes, the sequence it outputs, where Agreement fails, and a repair |
 | [`docs/minnow.md`](docs/minnow.md) | the minimal commit rule: the two readings its own sentences force, and the two defects that survive both |
 | [`docs/finwhale.md`](docs/finwhale.md) | the fast path at `n = 3f + 2p − 1`: the committee and its tightness, the validity clause the fast path needs, liveness from the block-creation conditions, what a validator guarantees, and what the paper should change |
-| [`docs/barnacle.md`](docs/barnacle.md) | the adaptive leader count: the interface A1–A4, the configuration-sequence model and why it needs no fixpoint, the liveness clause and its margin, the heads descent, the three instantiations, and the findings |
+| [`docs/barnacle.md`](docs/barnacle.md) | the adaptive leader count: the interface A1–A4, the configuration-sequence model and why it needs no fixpoint, the liveness clause and its margin, the heads descent, the four instantiations, and the findings |
 | [`docs/hydrozoan.md`](docs/hydrozoan.md) | the dual-path rule under hybrid faults: the thresholds and their table, the two-case consistency argument as one statement, the slow path as the guaranteed one, the liveness package and its grounding, and the findings |
 | [`docs/optimal-hydrozoan.md`](docs/optimal-hydrozoan.md) | the fast path at Hydrangea's bound: the validity rule and per-block fast evidence, the seam that consumes the rule once, the skip as a liveness claim and FinWhale's attack on it, and the always-fast parametrisation |
-| [`docs/integration.md`](docs/integration.md) | composing the arcs: the invariant interface, and what composition revealed |
+| [`docs/target-properties.md`](docs/target-properties.md) | the properties: what a rule shows and what it gets, the definitions displayed verbatim, the one-carrier-per-rule discipline, the audits, and the record of the passes that reached them |
+| [`docs/integration.md`](docs/integration.md) | the mechanisms at every rule: the cut and fill cells and the relation they witness, and the standing facts no property states — coverage under the fill, horizon placement, re-genesis, the exposure check, the storage budgets — with the deployment conditions they yield |
+| [`docs/hydrozoan-integration.md`](docs/hydrozoan-integration.md) | Hydrozoan and Optimal-Hydrozoan through the properties: the carriers and supports, the Barnacle instantiations and the committee bound round-robin needs, the schedule-free leader-exclusion clause, the native cut and fill |
 | [`docs/related.md`](docs/related.md) | a survey of consensus on uncertified DAGs |
 | [`docs/style.md`](docs/style.md) | writing conventions for the documents and the source |
 

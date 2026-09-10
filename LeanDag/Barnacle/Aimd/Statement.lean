@@ -1,15 +1,11 @@
 import LeanDag.Barnacle.Model.Window
-
 /-!
 # BN7 — the AIMD rule
 
-What the paper says of its update (`barnacle.md` §4, §6): the
-count stays in `[1, maxLeaders]`; a healthy window raises it by one and
-resets the back-off, a cap excepted; an unhealthy window lowers it by
-`2^backoff`, a floor excepted, and doubles the next step. Stated of
-`Aimd.update` — the step — and of `Aimd.rule`, the update rule a run
-consumes, whose bounds hold unconditionally so that a run under it
-needs no bound clause of its own.
+What the paper says of its update (`barnacle.md` §4, §6): the count
+stays in `[1, maxLeaders]`; a healthy window raises it by one, a cap
+excepted, and resets the back-off; an unhealthy window lowers it by
+`2^backoff`, a floor excepted, and doubles the next step.
 
 * **BN7a, bounds** — the rule's count is in `[1, maxLeaders]`, whatever
   the input.
@@ -37,9 +33,9 @@ every input — a run under the AIMD rule never leaves the range
 `Sched` is defined on. -/
 def RuleBounds (R : BaseRule Validator BlockId Payload) (P : Params)
     (getLeader : ℕ → Validator) (hk : Keyed getLeader P.maxLeaders) : Prop :=
-  ∀ (m backoff : ℕ) (U : R.Universe) (A : BlockId),
-    0 < (rule R P getLeader hk m backoff U A).1 ∧
-      (rule R P getLeader hk m backoff U A).1 ≤ P.maxLeaders
+  ∀ (m backoff : ℕ) (U : R.Universe) (V : R.View U) (A : BlockId),
+    0 < (rule R P getLeader hk m backoff U V A).1 ∧
+      (rule R P getLeader hk m backoff U V A).1 ≤ P.maxLeaders
 
 /-- **BN7b, healthy**: below the cap the count rises by one and the
 back-off resets; at the cap it stays. -/
@@ -60,10 +56,18 @@ def Unhealthy (P : Params) : Prop :=
 step exactly when `den · observed ≥ num · expected`. -/
 def Test (R : BaseRule Validator BlockId Payload) (P : Params)
     (getLeader : ℕ → Validator) (hk : Keyed getLeader P.maxLeaders) : Prop :=
-  ∀ (m backoff : ℕ) (hm : 0 < m) (hmax : m ≤ P.maxLeaders) (U : R.Universe) (A : BlockId),
-    rule R P getLeader hk m backoff U A =
+  ∀ (m backoff : ℕ) (hm : 0 < m) (hmax : m ≤ P.maxLeaders) (U : R.Universe)
+    (V : R.View U) (A : BlockId),
+    rule R P getLeader hk m backoff U V A =
       update P m backoff
         (decide (P.num * expected R P m ≤ P.den * observed R P getLeader hk U A m hm hmax))
+
+/-- **BN7e, the rule is anchored.** It does not read the view, so two
+validators holding the anchor take the same step — the condition BN3
+asks of an update rule. -/
+def RuleAnchored (R : BaseRule Validator BlockId Payload) (P : Params)
+    (getLeader : ℕ → Validator) (hk : Keyed getLeader P.maxLeaders) : Prop :=
+  Anchored R (rule R P getLeader hk)
 
 /-- The AIMD rule, for every base rule, parameter set and keyed leader
 function. No law of the rule is consumed. -/
@@ -71,7 +75,8 @@ def Statement : Prop :=
   ∀ (Validator BlockId Payload : Type) [Fintype Validator] [DecidableEq Validator]
     [DecidableEq BlockId] (R : BaseRule Validator BlockId Payload)
     (P : Params) (getLeader : ℕ → Validator) (hk : Keyed getLeader P.maxLeaders),
-    RuleBounds R P getLeader hk ∧ Healthy P ∧ Unhealthy P ∧ Test R P getLeader hk
+    RuleBounds R P getLeader hk ∧ Healthy P ∧ Unhealthy P ∧ Test R P getLeader hk ∧
+      RuleAnchored R P getLeader hk
 
 end Aimd
 

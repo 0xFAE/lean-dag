@@ -1,6 +1,5 @@
 import LeanDag.Minnow.Blocking
-import LeanDagTest.Model
-
+import LeanDagTest.Mysticeti.Model
 /-!
 # Minnow — a DAG in which `crs*` commits nothing, ever
 
@@ -43,8 +42,6 @@ namespace LeanDagTest
 namespace Minnow
 
 open LeanDag LeanDag.Minnow
-
-set_option maxRecDepth 4000000
 
 /-- The vertices. `id = 4 · round + process`; process `0` is Byzantine.
 Processes `2` and `3` point to everything of the round below, processes

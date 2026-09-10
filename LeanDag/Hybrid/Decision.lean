@@ -1,102 +1,62 @@
 import LeanDag.Hybrid.Rules
-
+import LeanDag.Common.Anchored.Bounded
+import LeanDag.Common.Rules
 /-!
-# The hybrid decision relation, and agreement
+# The hybrid decision relation
 
-The Odontoceti decision layer at the hybrid thresholds: two-round
-eligibility, the view-relative direct rules at `q`, the decision
-relation with the canonicity clause — retained unchanged, since a
-*Byzantine* leader can still plant two passing candidates in one
-anchor's cone, and nothing about the crash class closes that gap — and
-agreement (H6), by the same sixteen-case induction as O5 and M6, with
-`anchor_eq` consumed as found.
-
-Every agreement-side theorem threads `HonestNoEquiv` and the
-admissible-interval hypotheses for the indirect threshold `k`; the
-relation itself is a definition and carries neither.
+The Odontoceti decision layer at the hybrid thresholds: the anchored
+relation at wavelength one, the view-relative direct rules at `q`, and
+`ThickLink` at threshold `k`, with the least linked candidate committed
+— unchanged, since a Byzantine leader can still plant two passing
+candidates in one anchor's cone. The laws hold under `HonestNoEquiv`
+and an admissible `k`.
 -/
 
 namespace LeanDag
 
 namespace Hybrid
 
-variable {Validator : Type*} [Fintype Validator] [DecidableEq Validator]
+variable {Validator : Type} [Fintype Validator] [DecidableEq Validator]
 variable [H : HybridFaults Validator]
-variable {BlockId : Type*} [LinearOrder BlockId] {Payload : Type*}
+variable {BlockId : Type} [LinearOrder BlockId] {Payload : Type}
 variable {U : BlockUniverse Validator BlockId Payload}
 variable [S : Slots Validator]
 variable {L A : BlockId} {r k : ℕ}
 
-/-! ## Eligibility at wavelength two -/
-
-variable (Validator) in
-/-- The round at which a slot's verdict is settled: its supports live
-here. One round — there is no certificate round. -/
-def decisionRound (k : ℕ) : ℕ := S.slotRound k + 1
-
-variable (Validator) in
-/-- `j` may anchor `k`: its proposal lies past `k`'s decision round. -/
-def Eligible (k j : ℕ) : Prop := decisionRound Validator k < S.slotRound j
-
-omit [Fintype Validator] [DecidableEq Validator] H in
-/-- Eligibility, unfolded: two rounds. -/
-theorem eligible_iff {k j : ℕ} :
-    Eligible Validator k j ↔ S.slotRound k + 2 ≤ S.slotRound j := by
-  simp [Eligible, decisionRound]
-  omega
-
-instance decidableEligible (k j : ℕ) : Decidable (Eligible Validator k j) :=
-  inferInstanceAs (Decidable (decisionRound Validator k < S.slotRound j))
-
-omit [Fintype Validator] [DecidableEq Validator] H in
-/-- An eligible anchor is a later slot. -/
-theorem lt_of_eligible {k j : ℕ} (h : Eligible Validator k j) : k < j := by
-  by_contra hle
-  have : S.slotRound j ≤ S.slotRound k := S.mono (by omega)
-  rw [eligible_iff] at h
-  omega
-
-/-- The anchor's round clears the slot's decision round by one — enough
-for H4 to read the whole certificate out of its cone. -/
-theorem anchor_round_le {j : ℕ} (hA : IsLeaderBlock U j A)
-    (helig : Eligible Validator k j) :
-    S.slotRound k + 2 ≤ (U.block A).round := by
-  rw [hA.2.1]
-  exact eligible_iff.mp helig
-
 /-! ## The view-relative direct rules -/
 
-/-- The supporters a view actually holds. -/
-def supportersIn (U : BlockUniverse Validator BlockId Payload)
-    (V : View Validator BlockId Payload U) (L : BlockId) (r : ℕ) :
-    Finset Validator :=
-  creatorsOf U.block
-    (((blocksAt U (r + 1)).filter (fun p => L ∈ (U.block p).refs)) ∩ V.ids)
-
-/-- The blamers a view actually holds. -/
-def blamesIn (U : BlockUniverse Validator BlockId Payload)
-    (V : View Validator BlockId Payload U) (L : BlockId) (r : ℕ) :
-    Finset Validator :=
-  creatorsOf U.block
-    (((blocksAt U (r + 1)).filter (fun p => L ∉ (U.block p).refs)) ∩ V.ids)
-
-/-- Direct commit, as judged from a single view. -/
-def DirectCommitIn (U : BlockUniverse Validator BlockId Payload)
+/-- Direct commit, as judged from a single view: the view holds votes for
+`L` at the round above it from a hybrid quorum of validators. -/
+abbrev DirectCommitIn (U : BlockUniverse Validator BlockId Payload)
     (V : View Validator BlockId Payload U) (L : BlockId) (r : ℕ) : Prop :=
-  q Validator ≤ (supportersIn U V L r).card
+  supportCommit (q Validator) U V L r
 
-/-- Direct skip, as judged from a single view. -/
-def DirectSkipIn (U : BlockUniverse Validator BlockId Payload)
+/-- Direct skip, as judged from a single view: the view holds blocks at
+the round above `L` that omit it, from a hybrid quorum of validators. -/
+abbrev DirectSkipIn (U : BlockUniverse Validator BlockId Payload)
     (V : View Validator BlockId Payload U) (L : BlockId) (r : ℕ) : Prop :=
-  q Validator ≤ (blamesIn U V L r).card
+  HoldsAtLeast U V (q Validator) (omissionsOf U L (r + 1))
 
-instance {V : View Validator BlockId Payload U} :
-    Decidable (DirectCommitIn U V L r) :=
-  inferInstanceAs (Decidable (_ ≤ _))
+/-! The voting-round blocks that reference no candidate of the slot are
+the core's `slotBlamers`: the same set, over the same `IsLeaderBlock`. -/
 
-instance {V : View Validator BlockId Payload U} :
-    Decidable (DirectSkipIn U V L r) :=
-  inferInstanceAs (Decidable (_ ≤ _))
+/-- **The slot is directly skipped, as judged from a view**: a hybrid
+quorum of voting-round blocks, in view, reference no candidate of the
+slot. Strictly stronger than the per-candidate `DirectSkipIn`, needed
+for the same reason the core and Odontoceti were repaired
+(`docs/target-properties.md` §3.2): a skip over the candidates that
+happen to exist is not `Banded`. -/
+abbrev DirectSkipSlotIn (U : BlockUniverse Validator BlockId Payload)
+    (V : View Validator BlockId Payload U) (s : ℕ) : Prop :=
+  blameSkip (q Validator) U V s
+
+/-- **The slot-level skip implies the per-candidate one**, so every
+theorem stated over `DirectSkipIn` — H3 in particular — applies to it
+unchanged. A block referencing no candidate references not `L`. -/
+theorem directSkipIn_of_directSkipSlotIn {V : View Validator BlockId Payload U} {s : ℕ}
+    (h : DirectSkipSlotIn U V s) {L : BlockId} (hL : IsLeaderBlock U s L) :
+    DirectSkipIn U V L (S.slotRound s) :=
+  h.of_subset (slotBlamers_subset_omissionsOf hL)
 
 /-- A view can only under-report: its direct commit is genuine. -/
 theorem directCommit_of_directCommitIn
@@ -160,144 +120,89 @@ theorem eq_of_directCommitIn_of_thickLink (hne : HonestNoEquiv U)
   eq_of_directCommit_of_thickLink hne hka
     (directCommit_of_directCommitIn h₁) ht (by rw [hL₁.2.2, hL₂.2.2])
 
-/-! ## The decision relation -/
+/-! ## The relation -/
 
-/-- `Decided k U V s v` — a validator holding `V` has settled slot `s`,
-at indirect threshold `k`. Mirrors the Odontoceti relation, canonicity
-clause included: a Byzantine leader can still plant two passing
-candidates in one anchor's cone, and the crash class does not close the
-gap, so the committed candidate is the `≤`-least passing one. -/
-inductive Decided (k : ℕ) (U : BlockUniverse Validator BlockId Payload)
-    (V : View Validator BlockId Payload U) : ℕ → Option BlockId → Prop
-  /-- The direct rule commits a candidate outright. -/
-  | directCommit {s : ℕ} {L : BlockId} :
-      IsLeaderBlock U s L → DirectCommitIn U V L (S.slotRound s) →
-      Decided k U V s (some L)
-  /-- The direct rule blames every candidate — vacuously, when the
-  leader produced nothing. -/
-  | directSkip {s : ℕ} :
-      (∀ L, IsLeaderBlock U s L → DirectSkipIn U V L (S.slotRound s)) →
-      Decided k U V s none
-  /-- Anchored on the nearest eligible committed slot, the least
-  candidate passing the indirect test is committed. -/
-  | indirectCommit {s j : ℕ} {A L : BlockId} :
-      s < j → Eligible Validator s j → Decided k U V j (some A) →
-      (∀ i, s < i → i < j → Eligible Validator s i → Decided k U V i none) →
-      IsLeaderBlock U s L → ThickLink k U A L (S.slotRound s) →
-      (∀ L', IsLeaderBlock U s L' → ThickLink k U A L' (S.slotRound s) →
-        ¬ L' < L) →
-      Decided k U V s (some L)
-  /-- Anchored on the nearest eligible committed slot, no candidate
-  passes the indirect test. -/
-  | indirectSkip {s j : ℕ} {A : BlockId} :
-      s < j → Eligible Validator s j → Decided k U V j (some A) →
-      (∀ i, s < i → i < j → Eligible Validator s i → Decided k U V i none) →
-      (∀ L, IsLeaderBlock U s L → ¬ ThickLink k U A L (S.slotRound s)) →
-      Decided k U V s none
+omit S in
+/-- **Hybrid as an anchored rule**, one per indirect threshold. -/
+def hybridAnchored (Validator BlockId Payload : Type) [Fintype Validator]
+    [DecidableEq Validator] [HybridFaults Validator] [LinearOrder BlockId] (k : ℕ) :
+    AnchoredRule Validator BlockId Payload ValidWrt Correct where
+  wave := 1
+  Commit := fun U V L r => Hybrid.DirectCommitIn U V L r
+  decCommit := fun _ _ _ _ => inferInstance
+  Skip := fun U V S s => Hybrid.DirectSkipSlotIn (S := S) U V s
+  rungs := 1
+  Link := fun _ U A L S s => ThickLink k U A L (S.slotRound s)
+  tie := fun _ L L' => L < L'
 
-/-- A committed slot's block is a candidate of that slot. -/
-theorem isLeaderBlock_of_decided {V : View Validator BlockId Payload U}
-    {j : ℕ} {A : BlockId} (h : Decided k U V j (some A)) :
-    IsLeaderBlock U j A := by
-  cases h with
-  | directCommit hL _ => exact hL
-  | indirectCommit _ _ _ _ hL _ _ => exact hL
+omit S in
+@[simp] theorem hybridAnchored_wave (k : ℕ) :
+    (hybridAnchored Validator BlockId Payload k).wave = 1 := rfl
+omit S in
+@[simp] theorem hybridAnchored_rungs (k : ℕ) :
+    (hybridAnchored Validator BlockId Payload k).rungs = 1 := rfl
 
-/-! ## H6 — agreement -/
+instance {V : View Validator BlockId Payload U} (k : ℕ) (L : BlockId) (r : ℕ) :
+    Decidable ((hybridAnchored Validator BlockId Payload k).Commit U V L r) :=
+  inferInstanceAs (Decidable (Hybrid.DirectCommitIn U V L r))
 
-/-- **Visibility from an anchor.** A slot committed directly carries a
-thick link at any eligible anchor above it — what rules out the mixed
-cases, where one validator commits directly and the other skips
-indirectly. -/
-theorem thickLink_of_directCommitIn_at_anchor (hne : HonestNoEquiv U)
-    (hkb : k + 3 * H.fb + 2 * H.fc ≤ Fintype.card Validator)
-    {V W : View Validator BlockId Payload U} {s j : ℕ} {L A : BlockId}
-    (h : DirectCommitIn U V L (S.slotRound s))
-    (hj : Decided k U W j (some A)) (helig : Eligible Validator s j) :
-    ThickLink k U A L (S.slotRound s) :=
-  thickLink_of_directCommitIn hne hkb h (isLeaderBlock_of_decided hj).1
-    (anchor_round_le (isLeaderBlock_of_decided hj) helig)
+instance {V : View Validator BlockId Payload U} (k s : ℕ) :
+    Decidable ((hybridAnchored Validator BlockId Payload k).Skip U V S s) :=
+  inferInstanceAs (Decidable (Hybrid.DirectSkipSlotIn (S := S) U V s))
 
-/-- **H6 (agreement; the O5 mirror).** No two validators reach
-conflicting decisions for a slot at any admissible threshold, whatever
-views they hold and whichever routes they took. The sixteen-case
-induction of O5 and M6: the direct diagonal by H2 and twin uniqueness,
-every direct-versus-indirect crossing by H3, H4 or H5, and the shared
-anchor forced by `anchor_eq` with canonicity arbitrating the
-commit-commit case. -/
-theorem decided_unique (hne : HonestNoEquiv U)
-    (hk : Admissible Validator k)
-    {V₁ : View Validator BlockId Payload U} {s : ℕ}
-    {v₁ : Option BlockId} (h₁ : Decided k U V₁ s v₁) :
-    ∀ (V₂ : View Validator BlockId Payload U) (v₂ : Option BlockId),
-      Decided k U V₂ s v₂ → v₁ = v₂ := by
-  obtain ⟨hka, hkb⟩ := hk
-  induction h₁ with
-  | @directCommit s L hL h =>
-    intro V₂ v₂ h₂
-    cases h₂ with
-    | directCommit hL₂ h₂ =>
-      exact congrArg some (eq_of_directCommitIn hne hL hL₂ h h₂)
-    | directSkip hskip =>
-      exact absurd (not_directSkipIn_of_directCommitIn hne h (hskip L hL))
-        not_false
-    | indirectCommit _ _ _ _ hL₂ ht₂ _ =>
-      exact congrArg some
-        (eq_of_directCommitIn_of_thickLink hne hka hL hL₂ h ht₂)
-    | @indirectSkip _ j A hkj helig hj hmid hnone =>
-      exact absurd (thickLink_of_directCommitIn_at_anchor hne hkb h hj helig)
-        (hnone _ hL)
-  | @directSkip s hskip =>
-    intro V₂ v₂ h₂
-    cases h₂ with
-    | @directCommit _ L₂ hL₂ h₂ =>
-      exact absurd (not_directSkipIn_of_directCommitIn hne h₂ (hskip L₂ hL₂))
-        not_false
-    | directSkip _ => rfl
-    | indirectCommit _ _ _ _ hL₂ ht₂ _ =>
-      exact absurd ht₂ (not_thickLink_of_directSkipIn hne hka (hskip _ hL₂) _)
-    | indirectSkip _ _ _ _ _ => rfl
-  | @indirectCommit s j A L hkj helig hj hmid hL ht hmin ihj ihmid =>
-    intro V₂ v₂ h₂
-    cases h₂ with
-    | directCommit hL₂ h₂ =>
-      exact congrArg some
-        (eq_of_directCommitIn_of_thickLink hne hka hL₂ hL h₂ ht).symm
-    | directSkip hskip₂ =>
-      exact absurd ht (not_thickLink_of_directSkipIn hne hka (hskip₂ _ hL) _)
-    | @indirectCommit _ j₂ A₂ L₂ hkj₂ helig₂ hj₂ hmid₂ hL₂ ht₂ hmin₂ =>
-      obtain ⟨rfl, rfl⟩ := anchor_eq hkj helig hkj₂ helig₂ hj₂ hmid₂ ihj ihmid
-      exact congrArg some (le_antisymm
-        (not_lt.mp (hmin L₂ hL₂ ht₂)) (not_lt.mp (hmin₂ L hL ht)))
-    | @indirectSkip _ j₂ A₂ hkj₂ helig₂ hj₂ hmid₂ hnone₂ =>
-      obtain ⟨rfl, rfl⟩ := anchor_eq hkj helig hkj₂ helig₂ hj₂ hmid₂ ihj ihmid
-      exact absurd ht (hnone₂ _ hL)
-  | @indirectSkip s j A hkj helig hj hmid hnone ihj ihmid =>
-    intro V₂ v₂ h₂
-    cases h₂ with
-    | directCommit hL₂ h₂ =>
-      exact absurd (thickLink_of_directCommitIn_at_anchor hne hkb h₂ hj helig)
-        (hnone _ hL₂)
-    | directSkip _ => rfl
-    | @indirectCommit _ j₂ A₂ L₂ hkj₂ helig₂ hj₂ hmid₂ hL₂ ht₂ hmin₂ =>
-      obtain ⟨rfl, rfl⟩ := anchor_eq hkj helig hkj₂ helig₂ hj₂ hmid₂ ihj ihmid
-      exact absurd ht₂ (hnone _ hL₂)
-    | indirectSkip _ _ _ _ _ => rfl
+instance (k i : ℕ) (A L : BlockId) (S : Slots Validator) (s : ℕ) :
+    Decidable ((hybridAnchored Validator BlockId Payload k).Link i U A L S s) :=
+  inferInstanceAs (Decidable (ThickLink k U A L (S.slotRound s)))
 
-/-- Agreement, in M6's binary shape. -/
-theorem decided_agree (hne : HonestNoEquiv U) (hk : Admissible Validator k)
-    {V₁ V₂ : View Validator BlockId Payload U} {s : ℕ}
-    {v₁ v₂ : Option BlockId} (h₁ : Decided k U V₁ s v₁)
-    (h₂ : Decided k U V₂ s v₂) : v₁ = v₂ :=
-  decided_unique hne hk h₁ V₂ v₂ h₂
+/-- **The decision relation** at threshold `k`: the anchored relation at
+Hybrid's data. -/
+abbrev Decided (k : ℕ) (U : BlockUniverse Validator BlockId Payload)
+    (V : View Validator BlockId Payload U) : ℕ → Option BlockId → Prop :=
+  (hybridAnchored Validator BlockId Payload k).Decided (S := S) U V
 
-/-- **Safety.** Two committed blocks for one slot are the same block,
-across any two views and any two routes. -/
-theorem safety (hne : HonestNoEquiv U) (hk : Admissible Validator k)
-    {V₁ V₂ : View Validator BlockId Payload U} {s : ℕ}
-    {L₁ L₂ : BlockId} (h₁ : Decided k U V₁ s (some L₁))
-    (h₂ : Decided k U V₂ s (some L₂)) : L₁ = L₂ :=
-  Option.some.inj (decided_unique hne hk h₁ V₂ (some L₂) h₂)
+namespace Decided
+export AnchoredRule.Decided (directCommit directSkip indirectCommit indirectSkip)
+end Decided
+
+omit S in
+/-- **Hybrid's laws**, under `HonestNoEquiv` at an admissible threshold:
+the direct/direct cases by H2 and twin uniqueness, the crossings by
+H3/H4/H5, and two tie-break choices equal by antisymmetry. -/
+theorem hybridLaws {k : ℕ} (hk : Admissible Validator k) :
+    (hybridAnchored Validator BlockId Payload k).Laws (fun _ => HonestNoEquiv) where
+  commit_unique := fun hne hL₁ hL₂ h₁ h₂ => eq_of_directCommitIn hne hL₁ hL₂ h₁ h₂
+  commit_skip := fun hne hL h hskip =>
+    not_directSkipIn_of_directCommitIn hne h (directSkipIn_of_directSkipSlotIn hskip hL)
+  commit_link := fun hne _ h hA helig => ⟨0, Nat.one_pos,
+    thickLink_of_directCommitIn hne hk.2 h hA.1 (by
+      have := (hybridAnchored Validator BlockId Payload k).anchor_round_le hA helig
+      simp only [hybridAnchored_wave] at this; omega)⟩
+  commit_link_unique := by
+    intro S U V k j i L₁ L₂ A hne hL₁ hL₂ h _ _ _ _ hlink _
+    exact eq_of_directCommitIn_of_thickLink hne hk.1 hL₁ hL₂ h hlink
+  skip_link := fun hne hskip hL _ =>
+    not_thickLink_of_directSkipIn hne hk.1 (directSkipIn_of_directSkipSlotIn hskip hL) _
+  link_unique := by
+    intro S U k j i L₁ L₂ A _ hL₁ hL₂ _ _ _ _ hl₁ hl₂ hm₁ hm₂
+    exact le_antisymm (not_lt.mp (show ¬ L₂ < L₁ from hm₁ L₂ hL₂ hl₂))
+      (not_lt.mp (show ¬ L₁ < L₂ from hm₂ L₁ hL₁ hl₁))
+  commit_mono := fun _ hsub h => HoldsAtLeast.mono hsub h
+  skip_mono := fun _ hsub h => HoldsAtLeast.mono hsub h
+  skip_congr := fun _ hround hk h => blameSkip_congr hround hk h
+  link_congr := (hybridAnchored Validator BlockId Payload k).linkCongr_of_round
+    (fun _ U A L r => ThickLink k U A L r) fun _ _ _ _ _ _ => rfl
+
+omit S in
+/-- The rung's tie is the order, so a nonempty rung has a least
+candidate. -/
+theorem exists_least {S : Slots Validator} {U : BlockUniverse Validator BlockId Payload}
+    {A : BlockId} {k i s : ℕ} (_ : i < (hybridAnchored Validator BlockId Payload k).rungs)
+    (h : ∃ L, IsLeaderBlock (S := S) U s L ∧
+      (hybridAnchored Validator BlockId Payload k).Link i U A L S s) :
+    ∃ L, IsLeaderBlock (S := S) U s L ∧
+      (hybridAnchored Validator BlockId Payload k).Link i U A L S s ∧
+      (hybridAnchored Validator BlockId Payload k).Least (S := S) U A i s L :=
+  AnchoredRule.exists_least_of_lt (fun _ _ => Iff.rfl) h
 
 end Hybrid
 

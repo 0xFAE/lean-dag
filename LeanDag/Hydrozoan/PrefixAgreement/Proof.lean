@@ -1,14 +1,9 @@
 import LeanDag.Hydrozoan.PrefixAgreement.Statement
 import LeanDag.Hydrozoan.SlotAgreement.Proof
-
 /-!
 # Prefix agreement — proof
 
-Generated proof layer; not part of the audit surface. Everything is a
-harvest of `SlotAgreement.decided_unique`: pointwise verdict agreement
-below the horizon, then list plumbing (`filterMap` congruence over
-`range`, `range`/`filterMap` distribution over append, and prefix
-preservation under `flatMap`).
+Generated proof layer; not part of the audit surface.
 -/
 
 namespace LeanDag
@@ -18,7 +13,7 @@ namespace Hydrozoan
 namespace PrefixAgreement
 
 variable {Replica BlockId : Type*} [Fintype Replica] [DecidableEq Replica]
-  [DecidableEq BlockId] [LinearOrder BlockId] [F : Faults Replica]
+  [DecidableEq BlockId] [LinearOrder BlockId] [F : LeanDag.Hydrozoan.Faults Replica]
   [S : Slots Replica] {U : BlockUniverse Replica BlockId}
 
 /-- Pointwise verdict agreement below a shared horizon. -/

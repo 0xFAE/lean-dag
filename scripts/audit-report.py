@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Two mechanical checks on docs/report.md, per docs/style.md section 4.
+"""Two mechanical checks on the design documents, per docs/style.md section 4.
+
+Run over docs/report.md whole, and over docs/target-properties.md §0 —
+the part that document declares to be "the arc as it stands". Its §1
+onward is the record of how the arc got here and describes earlier
+states, so auditing it against the present would report its own history
+as failures; the section-number set is still read from the whole file, so
+§0 may name any section.
 
   1. every section cross-reference names a section that exists;
   2. every backticked Lean identifier names a declaration that exists;
@@ -50,6 +57,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 # a dotted or underscored identifier, not a file path and not English prose.
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.'′]*$")
 FILE_SUFFIX = re.compile(r"\.(lean|md|py|sh|tsv|svg|pdf|toml|yml|json)$")
+# A lower-then-upper run marks a camelCase or PascalCase Lean name, which
+# the underscore-or-dot test alone lets through: `descendSupp` named a
+# declaration that had been deleted and no check saw it.
+INNER_CAPS = re.compile(r"[a-z][A-Z]")
 # Words that are legitimately backticked in the report but are not declarations.
 ALLOW = {
     "sorry", "decide", "omega", "simp", "rfl", "native_decide", "propext",
@@ -57,9 +68,20 @@ ALLOW = {
     # Lean core and Mathlib names the report mentions; the extraction keeps
     # only this development's declarations, so these cannot be checked here.
     "Environment.constants", "ConstantInfo.value", "Finset.card", "Fintype.card",
-    "Finset.filter", "Finset.min", "Finset.max", "lt_trichotomy", "Correct.card", "Finset.max'", "Nat.succ", "refs.card",
-    "LeanDagTest.Growth", "LeanDagTest.Unbounded", "Environment.constants",
+    "Finset.filter", "Finset.min", "Finset.max", "Finset.min'", "lt_trichotomy", "Correct.card", "Finset.max'", "Nat.succ", "refs.card",
+    "LeanDagTest.Mysticeti.Growth", "LeanDagTest.Mysticeti.Unbounded", "Environment.constants",
     "le_antisymm", "not_lt", "List.finRange", "Finset.sort",
+    # Scoped notation, not a declaration, so the extraction cannot see it.
+    "quorumCard",
+    # Lean core and Mathlib names with no underscore or dot, which the
+    # camelCase check now reaches.
+    "LinearOrder", "sorryAx",
+    # Pseudocode names of the papers the arcs read, quoted as the papers
+    # write them: Black Marlin's Algorithm 1 and Mysticeti's.
+    "GetLeader", "GetSubDag", "TryDecide", "TryCommit", "UpdateLeaders",
+    "LinearizeSubDags", "ExposesEquivocation", "ExpectedCommits",
+    # Prose names for a clause or a hypothesis, not declarations.
+    "leaderClause", "noEvidence", "hN",
     # Names of the reference implementation (the `mysticeti` repository, Rust)
     # that the Mahi-Mahi arc's docstrings quote.
     "enough_leader_blame", "is_certificate", "try_indirect_decide",
@@ -70,6 +92,21 @@ ALLOW = {
     "q_fast", "q_cert", "q_slow", "q_weak", "parents.card", "Nat.find",
     "t_plain", "t_equiv",
 }
+
+
+def current_scope(text, heading):
+    """The slice a document declares to be its current state.
+
+    `docs/target-properties.md` says of itself that §0 is the arc as it
+    stands and §1 onward "describe earlier states and say so", so the
+    identifier and displayed-statement checks read §0 alone. Auditing the
+    record against the present would report its own history as failures.
+    """
+    lines = text.splitlines(keepends=True)
+    lo = next(i for i, l in enumerate(lines) if l.startswith(heading))
+    hi = next((i for i in range(lo + 1, len(lines))
+               if re.match(r"^## ", lines[i])), len(lines))
+    return "".join(lines[lo:hi])
 
 
 def sections(text):
@@ -95,13 +132,30 @@ def declarations(tsv):
 def resolves(name, decls, suffixes):
     """A report name resolves if it is a declaration or a suffix of one.
 
-    The report also writes projections applied to a variable — `U.block` for
-    `BlockUniverse.block`, `V.ids` for `View.ids` — so a dotted name whose
-    tail resolves is accepted too.
+    Two looser forms are admitted, and one is refused.
+
+    A *two-segment* name resolves when its tail does. The report writes
+    projections applied to a variable — `U.block` for `BlockRecord.block`,
+    `V.ids` for `View.ids` — and reaches a structure's field through an
+    abbreviation or a parent, `BlockUniverse.complete` for the record's and
+    `ViewPace.advances` for `PaceCore`'s; it also names a generic theorem by
+    the arc that applies it, `Nemo.ledgerSet_agree`. None of those is a path
+    the extraction can see.
+
+    A name of *three or more* segments is refused that licence: it must
+    resolve whole. `BlackMarlin.Safety.holds` names an arc as well as a
+    module and a declaration, and its arc can be deleted while some
+    unrelated `holds` — there are forty-two, four of them under a `Safety`
+    — keeps the citation looking sound.
     """
     if name in decls or name in suffixes:
         return True
-    return "." in name and name.split(".")[-1] in suffixes
+    if "." not in name:
+        return False
+    parts = name.split(".")
+    if len(parts) >= 3:
+        return False
+    return parts[-1] in suffixes
 
 
 DECL_START = re.compile(r"^(?:@\[[^\]]*\]\s*)?(?:private\s+|protected\s+|noncomputable\s+)?"
@@ -120,7 +174,8 @@ def source_declarations(root):
     matters.
     """
     decls = {}
-    for f in (root / "LeanDag").rglob("*.lean"):
+    for f in [*(root / "LeanDag").rglob("*.lean"),
+              *(root / "LeanDagTest").rglob("*.lean")]:
         lines = f.read_text().split("\n")
         starts = [i for i, l in enumerate(lines) if DECL_START.match(l)]
         for n, i in enumerate(starts):
@@ -205,16 +260,26 @@ def extracted_names(root):
 
 
 # High-precision register violations only; docs/style.md carries the tables.
+# Each row is written to catch its own inflections: the register is a
+# property of the phrase, not of the tense it happens to appear in, and
+# "turns out" is the same laboratory note as "turned out". Widened only
+# across tense and number -- never from a phrase to its bare verb, which
+# would sweep in the established senses of "bite", "engine" and "cheap"
+# that docs/style.md §1 permits.
 BANNED = re.compile(
-    r"\b(load[- ]bearing|earns its keep|for free|buys|bought|at the price"
-    r"|turned out|an earlier (?:draft|version)|worth recording|first draft"
-    r"|the old (?:schedule|spacing|proof)|gets cheaper|is spent"
+    r"\b(load[- ]bearing|earn(?:s|ed|ing)? its keep|for free"
+    r"|buy(?:s|ing)?|bought|at the price"
+    r"|turn(?:s|ed|ing)? out|earlier (?:draft|version)s?|worth recording"
+    r"|first draft|the old (?:schedule|spacing|proof)"
+    r"|(?:get|gets|got|getting) cheaper|(?:is|are|was|were|be|been|being) spent"
     # commercial metaphor extended to clauses, blocks and thresholds
-    r"|pays? for itself|spends? the|charges? (?:a|the|it)|costs? nothing"
+    r"|pa(?:y|ys|id|ying) for itself|(?:spend|spends|spent|spending) the"
+    r"|charg(?:e|es|ed|ing) (?:a|the|it)|cost(?:s|ing)? nothing"
     r"|more cheaply|unaffordable|affordable"
     # figurative verbs and nouns
-    r"|seen to bite|does not bite|vindication of|headline on data"
-    r"|is its engine)\b", re.I)
+    r"|seen to bite|do(?:es)? not bite|did not bite"
+    r"|vindicat(?:e|es|ed|ing|ion of)|headline on data"
+    r"|(?:is|was|are|were) (?:its|the) engine)\b", re.I)
 
 # A docstring section reference is qualified when a document name or the
 # word "report" sits within forty characters before or after it.
@@ -233,6 +298,43 @@ def load_extracted(root):
     return out
 
 
+def unwrapped(text):
+    """The text with soft line wraps collapsed to single spaces, paragraph
+    breaks retained, and a parallel map giving each character's source line.
+
+    Matching the register line by line misses a phrase a wrap splits, which
+    is how "costs nothing" stood in `barnacle.md` while the check passed.
+    Collapsing every run of whitespace instead would join the end of one
+    paragraph to the start of the next and report a phrase neither
+    contains, so a run holding a blank line becomes a newline rather than a
+    space: `\\b` then keeps it out of any match.
+    """
+    out, lines = [], []
+    line, run, run_line = 1, "", 1
+    for ch in text:
+        if ch.isspace():
+            if not run:
+                run_line = line
+            run += ch
+        else:
+            if run and out:
+                out.append("\n" if run.count("\n") > 1 else " ")
+                lines.append(run_line)
+            run = ""
+            out.append(ch)
+            lines.append(line)
+        if ch == "\n":
+            line += 1
+    return "".join(out), lines
+
+
+def banned_failures(text):
+    """Every banned phrase in `text`, each named by the line it starts on."""
+    flat, at = unwrapped(text)
+    return [("banned", f"line {at[m.start()]}: `{m.group(0)}`")
+            for m in BANNED.finditer(flat)]
+
+
 def audit_register(path):
     """The banned-phrase check alone.
 
@@ -241,23 +343,33 @@ def audit_register(path):
     not apply to them. The register does: it is the one rule that holds
     of every document in `docs/`.
     """
-    failures = [
-        ("banned", f"line {i}: `{m.group(0)}`")
-        for i, line in enumerate(path.read_text().split("\n"), 1)
-        if (m := BANNED.search(line))
-    ]
+    failures = banned_failures(path.read_text())
     for kind, detail in failures:
         print(f"{path.name}: {kind}: {detail}")
     return len(failures)
 
 
-def audit(path, decls, suffixes):
+def audit(path, decls, suffixes, current_heading=None):
     text = path.read_text()
     failures = []
 
+    # Sections may be named from anywhere in the document, so the set of
+    # section numbers that exist is read from all of it; every other check
+    # reads only what the document declares to be current.
     have = sections(text)
+    if current_heading is not None:
+        text = current_scope(text, current_heading)
+
+    # A reference naming another document, "`docs/common-layer.md` §1.2",
+    # is qualified and resolves against that document, not this one.
+    elsewhere = set()
+    for doc, ref in re.findall(
+            r"`docs/([a-z-]+\.md)`[^\n]{0,40}?§([0-9]+(?:\.[0-9]+)*)", text):
+        other = ROOT / "docs" / doc
+        if other.exists() and ref in sections(other.read_text()):
+            elsewhere.add(ref)
     for ref in sorted(set(re.findall(r"§([0-9]+(?:\.[0-9]+)*|[A-Z]\b)", text))):
-        if ref not in have:
+        if ref not in have and ref not in elsewhere:
             # a bare "§10" is satisfied by the existence of section 10
             failures.append(("xref", ref))
 
@@ -271,16 +383,14 @@ def audit(path, decls, suffixes):
             continue
         if FILE_SUFFIX.search(tok) or "/" in tok:
             continue
-        if "_" not in tok and "." not in tok:
+        if "_" not in tok and "." not in tok and not INNER_CAPS.search(tok):
             continue  # a single English word, not a Lean name
         if not resolves(tok, decls, suffixes):
             failures.append(("ident", tok))
 
-    # check 5: the banned phrases, over the whole document
-    for i, line in enumerate(text.split("\n"), 1):
-        m = BANNED.search(line)
-        if m:
-            failures.append(("banned", f"line {i}: `{m.group(0)}`"))
+    # check 5: the banned phrases, over the whole document, matched across
+    # soft line wraps (`unwrapped`)
+    failures.extend(banned_failures(text))
 
     # check 6: docstring section references are qualified
     dpath = ROOT / "docs/decls.json"
@@ -331,6 +441,17 @@ def audit(path, decls, suffixes):
     for name, disp in shown.items():
         src = sigs.get(name)
         if src is None:
+            # the display may qualify a name the source leaves bare inside a
+            # namespace, or leave bare one the source qualifies
+            short = name.rsplit(".", 1)[-1]
+            src = sigs.get(short)
+            if src is None:
+                cands = [v for k, v in sigs.items() if k.rsplit(".", 1)[-1] == short]
+                src = cands[0] if len(cands) == 1 else None
+        if src is None:
+            # a displayed statement whose declaration is nowhere in the source:
+            # the drift a deletion leaves behind, which no other check sees
+            failures.append(("nosource", f"`{name}` is displayed but declared nowhere"))
             continue
         for tok in set(re.findall(r"[A-Za-z_][A-Za-z0-9_.'\u2032]*", disp)):
             if tok == name or tok in ALLOW:
@@ -357,7 +478,7 @@ def audit(path, decls, suffixes):
                                  f"{name} displays `{gaps[0]}`, which the source "
                                  f"does not have at that point"))
 
-    print(f"{path.relative_to(ROOT)}: {len(have)} sections, "
+    print(f"{path.resolve().relative_to(ROOT)}: {len(have)} sections, "
           f"{len(seen)} distinct backticked tokens, {len(shown)} displayed "
           f"statements ({checked} compared verbatim)")
     for kind, item in failures:
@@ -383,16 +504,18 @@ def main(argv):
             suffixes.add(n)
 
     if argv[1:]:
-        paths, register_only = [pathlib.Path(a) for a in argv[1:]], []
+        paths = [(pathlib.Path(a), None) for a in argv[1:]]
+        register_only = []
     else:
-        paths = [ROOT / "docs/report.md"]
+        paths = [(ROOT / "docs/report.md", None),
+                 (ROOT / "docs/target-properties.md", "## 0.")]
         # The register check covers every document in `docs/` except
         # `style.md`, which quotes the banned phrases in order to ban
         # them. A new design record is covered the moment it is added.
         register_only = sorted(
             q for q in (ROOT / "docs").glob("*.md")
             if q.name not in ("report.md", "style.md"))
-    bad = sum(audit(p, decls, suffixes) for p in paths)
+    bad = sum(audit(p, decls, suffixes, h) for p, h in paths)
     bad += sum(audit_register(q) for q in register_only)
     sys.exit(1 if bad else 0)
 

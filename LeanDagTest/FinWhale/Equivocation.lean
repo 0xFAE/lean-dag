@@ -1,6 +1,8 @@
-import LeanDagTest.Growth
+import LeanDagTest.Mysticeti.Growth
 import LeanDag.FinWhale.DoSBridge
-
+import Mathlib.Data.Fin.VecNotation
+import Mathlib.Tactic.IntervalCases
+import LeanDag.FinWhale.Procedure.DoSBridge
 /-!
 # FinWhale witnesses — a DoS-valid execution with a real equivocation
 
@@ -32,8 +34,6 @@ namespace LeanDagTest
 namespace FinWhaleEquiv
 
 open LeanDag LeanDag.FinWhale
-
-set_option maxRecDepth 40000
 
 /-- The fast-path budget: `n + 1 = 3f + 2p = 5`. -/
 local instance eqParams : Params (Fin 4) where
@@ -119,7 +119,7 @@ def Dequiv : Dag (Fin 4) (Fin 16) Unit :=
 example : SelfParented Dequiv := selfParented_ofDoSValid uequiv_dosValid
 
 /-- The slot of round `0` holds both twins, and they conflict. -/
-example : slotBlocks Dequiv 0 = {0, 4} ∧ Conflicting Dequiv 0 4 := by decide
+example : slotBlocks (Slots.identity eqSlots.leader) Dequiv 0 = {0, 4} ∧ Conflicting Dequiv 0 4 := by decide
 
 /-! ## The reactive schedule over it
 
@@ -209,7 +209,7 @@ a slow-path quorum of votes among their parents. So the equivocation
 costs the execution nothing, which is the whole point of a rule that
 counts votes rather than reading the equivocator. -/
 
-example : Dequiv.leader 1 ∈ (Correct : Finset (Fin 4)) := by decide
+example : eqSlots.leader 1 ∈ (Correct : Finset (Fin 4)) := by decide
 
 example : FastCommit Dequiv 6 ∧ SPCommit Dequiv 6 := by decide
 
@@ -252,22 +252,23 @@ of. -/
 /-- Everything below round `2` except the committed block. -/
 def Vmiss : Finset (Fin 16) := {0, 1, 2, 3, 4, 5, 7, 8}
 
-theorem isView_Vmiss : IsView Dequiv Vmiss := ⟨by decide, by decide⟩
+/-- As a view of `Dequiv`. -/
+def VmissView : Dequiv.View := ⟨Vmiss, by decide, by decide⟩
 
 /-- **The commit is real, and the view holds no block of its slot.** -/
 example : DirectCommit Dequiv 6 ∧
-    slotBlocks (restrict Dequiv Vmiss isView_Vmiss) 1 = ∅ := by decide
+    slotBlocks (Slots.identity eqSlots.leader) (VmissView.toRecord) 1 = ∅ := by decide
 
 /-- **So the SP-skip half is satisfied for nothing there** — vacuously,
 over an empty slot — which is what leaves the paper's argument without a
 block to run on. -/
-example : ∀ l ∈ slotBlocks (restrict Dequiv Vmiss isView_Vmiss) 1,
-    SPSkip (restrict Dequiv Vmiss isView_Vmiss) l := by decide
+example : ∀ l ∈ slotBlocks (Slots.identity eqSlots.leader) (VmissView.toRecord) 1,
+    SPSkip (VmissView.toRecord) l := by decide
 
 /-- The arc's own exclusions do not go through that condition, and hold
 here: no view of this DAG directly skips a slot whose block is
 committed. -/
-example : ¬ DirectSkip (restrict Dequiv Vmiss isView_Vmiss) 1 := by decide
+example : ¬ DirectSkip (Slots.identity eqSlots.leader) (VmissView.toRecord) 1 := by decide
 
 /-! ## The horizon
 

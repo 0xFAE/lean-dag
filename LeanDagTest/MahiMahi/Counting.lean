@@ -1,6 +1,5 @@
-import LeanDagTest.Model
+import LeanDagTest.Mysticeti.Model
 import LeanDag.MahiMahi.Counting.Statement
-
 /-!
 # Mahi-Mahi witnesses — the counting lemma on data
 
@@ -20,8 +19,6 @@ Same committee as `Model.lean` (validator `0` Byzantine, `f = 1`, quorum
 -/
 
 namespace LeanDagTest
-
-set_option maxRecDepth 2000000
 
 open LeanDag
 

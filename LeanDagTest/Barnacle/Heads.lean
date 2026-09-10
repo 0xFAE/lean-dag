@@ -1,7 +1,8 @@
 import LeanDagTest.Barnacle.Progress
 import LeanDag.Barnacle.Heads.Proof
-import LeanDag.Barnacle.MysticetiLive.Proof
-
+import LeanDagTest.Barnacle.Rules.MysticetiLive.Proof
+import Mathlib.Tactic.FinCases
+import Mathlib.Tactic.IntervalCases
 /-!
 # Barnacle witnesses — the heads descent on data
 
@@ -43,8 +44,6 @@ import LeanDag.Barnacle.MysticetiLive.Proof
 namespace LeanDagTest
 
 namespace Barnacle
-
-set_option maxRecDepth 2000000
 
 open LeanDag LeanDag.Barnacle
 
@@ -113,7 +112,7 @@ theorem usun_sync : SynchronisedOn Usun {1, 2, 3} 1 := by
 
 theorem usun_good :
     (mysticetiLive (Validator := Fin 4) (BlockId := Fin 32) (Payload := Unit)).Good Usun 1 7 :=
-  ⟨{1, 2, 3}, by rw [bnCorrect], by decide, usun_sync, fun r h1 h2 => by
+  ⟨{1, 2, 3}, ⟨by decide, by decide⟩, usun_sync, fun r h1 h2 => by
     interval_cases r <;> decide⟩
 
 -- Population fails at round `8`: `Good Usun 1 8` needs a block there.
@@ -125,8 +124,10 @@ residue, so some slot among them commits — through `MysticetiLive.holds`.
 The conclusion is as weak as an existential `T` allows. -/
 example : ∃ κ, 1 ≤ κ ∧ κ ≤ 4 ∧
     ∃ L, bnRule32.Decided sched1 (View.full Usun) κ (some L) := by
-  obtain ⟨T, hcard, hT⟩ :=
+  obtain ⟨T, hcard, hT0⟩ :=
     (MysticetiLive.holds.1 (Fin 4) (Fin 32) Unit).goodLeaders Usun 1 7 usun_good
+  have hT := fun S κ => hT0 S (View.full Usun) κ
+    (coversUpto_full (Mysticeti.holds (Fin 4) (Fin 32) Unit).full_ids Usun 7)
   have h3 : 3 ≤ T.card := by
     have h4 : Fintype.card (Fin 4) = 4 := Fintype.card_fin 4
     have hf : Faults.f (Fin 4) = 1 := rfl
@@ -170,9 +171,11 @@ example : ¬ SynchronisedOn Usk {0, 1, 2, 3} 1 := fun h =>
 quorum is `{1, 2, 3}` itself, and it is not synchronised. -/
 theorem usk_not_good (N : ℕ) :
     ¬ (mysticetiLive (Validator := Fin 4) (BlockId := Fin 32) (Payload := Unit)).Good Usk 1 N := by
-  rintro ⟨T, hsub, hcard, hsync, -⟩
+  rintro ⟨T, ⟨hsub, hcard⟩, hsync, -⟩
+  change T ⊆ Correct at hsub
   rw [bnCorrect] at hsub
   have h3 : 3 ≤ T.card := by
+    change Fintype.card (Fin 4) - Faults.f (Fin 4) ≤ T.card at hcard
     have h4 : Fintype.card (Fin 4) = 4 := Fintype.card_fin 4
     have hf : Faults.f (Fin 4) = 1 := rfl
     rw [h4, hf] at hcard
@@ -203,12 +206,16 @@ theorem usk_goodT : ∀ (S : Slots (Fin 4)) (κ : ℕ),
 theorem bnLiveSk_descent : bnLiveSk.Descent 1 where
   goodLeaders := by
     rintro U Rnd N ⟨rfl, rfl, rfl⟩
-    exact ⟨{0, 1, 3}, by decide, fun S κ h1 h2 h3 => usk_goodT S κ h1 h2 h3⟩
-  indirect := mysticetiLive_descent.indirect
+    refine ⟨{0, 1, 3}, by decide, fun S V κ hcov h1 h2 h3 => ?_⟩
+    obtain ⟨L, hL⟩ := usk_goodT S κ h1 h2 h3
+    -- every block of `Usk` lies at a round the view covers
+    have hround : ∀ b ∈ Usk.ids, (Usk.block b).round ≤ 8 := by decide
+    exact ⟨L, AnchoredRule.decided_mono coreLaws trivial (S := S) (fun b hb => hcov b hb (hround b hb)) hL⟩
+  indirect := (MysticetiLive.descent (Fin 4) (Fin 32) Unit).indirect
 
 /-- Slot `2` of `Sched 1` is directly skipped on `Usk`. -/
 theorem usk_skip2 : bnRule32.Decided sched1 (bnLiveSk.full Usk) 2 none :=
-  Decided.directSkip (S := sched1) (fun L hL => by have := hallSk L hL; subst this; decide)
+  Decided.directSkip (S := sched1) (by decide)
 
 /-- **BN9b on data.** The heads of rounds `3, 4, 5` are `T`-led, so every
 slot at rounds `0` to `2` is decided and the head of `3` is committed;
@@ -222,7 +229,7 @@ example : ∃ v₀ v₁ v₂ L,
     v₀ = some 0 ∧ v₁ = some 5 ∧ v₂ = none ∧ L = 15 := by
   obtain ⟨hdec, L, hL⟩ :=
     (Heads.holds.1 (Fin 4) (Fin 32) Unit bnLiveSk 1 bnLeader 4 bnWin 0).2.1
-    bnLiveSk_descent (Nat.succ_pos 2) Usk 1 8 {0, 1, 3}
+    bnLiveSk_descent (Nat.succ_pos 2) Usk (bnLiveSk.full Usk) 1 8 {0, 1, 3}
     (fun S κ h1 h2 h3 => usk_goodT S κ h1 h2 h3) 1 (by decide) (by decide) 3 (by decide)
     (by decide) (by decide)
   obtain ⟨v₀, h0⟩ := hdec 0 (by decide) (by decide)
@@ -282,7 +289,6 @@ example :
   have hw : bnLiveSk.waveLength = 3 := rfl
   omega
 
-
 /-! ## The paper's A4 on data: eleven rounds -/
 
 /-- Eleven sunny rounds on four validators, `Fin 44`. -/
@@ -308,7 +314,7 @@ theorem u44_sync : SynchronisedOn U44 {1, 2, 3} 1 := by
 
 theorem u44_good :
     (mysticetiLive (Validator := Fin 4) (BlockId := Fin 44) (Payload := Unit)).Good U44 1 10 :=
-  ⟨{1, 2, 3}, by rw [bnCorrect], by decide, u44_sync, fun r h1 h2 => by
+  ⟨{1, 2, 3}, ⟨by decide, by decide⟩, u44_sync, fun r h1 h2 => by
     interval_cases r <;> decide⟩
 
 abbrev rr4 : ℕ → Fin 4 := roundRobin 4 (by omega)
@@ -321,12 +327,14 @@ some slot at a round in `[1, 7]` of `U44` is committed. -/
 example : ∃ κ, 1 ≤ sched2_44.slotRound κ ∧ sched2_44.slotRound κ ≤ 1 + 6 ∧
     ∃ L, rule44.Decided sched2_44 (View.full U44) κ (some L) :=
   ((MysticetiLive.holds.2 4 (by omega) (Fin 44) Unit 4 (roundRobin_keyed 4 (by omega)) 2
-    (by decide) (by decide)) U44 1 10 u44_good).2 1 (by omega) (by decide)
+    (by decide) (by decide)) U44 (View.full U44) 1 10 u44_good
+    (coversUpto_full (Mysticeti.holds (Fin 4) (Fin 44) Unit).full_ids U44 10)).2 1 (by omega) (by decide)
 
 -- And clause 1: slot 2 (round 1, head) is decided by the theorem.
 example : ∃ v, rule44.Decided sched2_44 (View.full U44) 2 v :=
   ((MysticetiLive.holds.2 4 (by omega) (Fin 44) Unit 4 (roundRobin_keyed 4 (by omega)) 2
-    (by decide) (by decide)) U44 1 10 u44_good).1 2 (by decide) (by decide)
+    (by decide) (by decide)) U44 (View.full U44) 1 10 u44_good
+    (coversUpto_full (Mysticeti.holds (Fin 4) (Fin 44) Unit).full_ids U44 10)).1 2 (by decide) (by decide)
 
 -- One direct commit by `decide` on Fin 44: slot 2 = (round 1, offset 0), leader 1, block 5.
 theorem u44_commit2 : rule44.Decided sched2_44 (View.full U44) 2 (some 5) :=

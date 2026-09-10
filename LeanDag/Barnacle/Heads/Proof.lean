@@ -1,6 +1,5 @@
 import LeanDag.Barnacle.Heads.Statement
 import LeanDag.Barnacle.Helpers.Heads
-
 /-!
 # BN9 — proof
 
@@ -20,8 +19,8 @@ theorem holds : Statement := by
     refine ⟨?_, ?_, ?_⟩
     · intro hD S U V b top hspan hdec htop
       exact stretchDescent hD S V hspan hdec htop
-    · intro hD hw U Rnd N T hT m hm hmax ρ hRnd hN hheads
-      exact headsDecide_at getLeader hk m hm hmax hD hw hT ρ hRnd hN hheads
+    · intro hD hw U V Rnd N T hT m hm hmax ρ hRnd hN hheads
+      exact headsDecide_at getLeader hk m hm hmax hD hw V hT ρ hRnd hN hheads
     · intro hD hw hheads m hm hmax
       exact liveOn_of_headsRun getLeader hk m hm hmax hD hw hheads
   · intro n hn T slack g hT hbound

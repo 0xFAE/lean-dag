@@ -1,6 +1,5 @@
 import LeanDag.Barnacle.Progress.Statement
 import LeanDag.Barnacle.Helpers.Progress
-
 /-!
 # BN8 — proof
 
@@ -18,10 +17,10 @@ namespace Progress
 theorem holds : Statement := by
   intro Validator BlockId Payload _ _ _ R hR P getLeader hk upd hupd c
   refine ⟨?_, ?_⟩
-  · intro U Rnd N K Rn hlive hgood hRnd hN
-    exact progress hR hupd Rn hlive hgood hRnd hN
-  · intro hlive U Rnd N hgood hRnd K hK
-    exact everyHeight hR hupd hlive hgood hRnd K hK
+  · intro U V Rnd N K hcov Rn hlive hgood hRnd hN
+    exact progress hR hupd hcov Rn hlive hgood hRnd hN
+  · intro hlive U V Rnd N hgood hcov hRnd K hK
+    exact everyHeight hR hupd hlive hcov hgood hRnd K hK
 
 end Progress
 

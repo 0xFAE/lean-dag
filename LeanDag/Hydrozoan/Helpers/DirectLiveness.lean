@@ -1,7 +1,7 @@
 import LeanDag.Hydrozoan.Model.Liveness
 import LeanDag.Hydrozoan.Helpers.Counting
 import LeanDag.Hydrozoan.Helpers.DirectRules
-
+import LeanDag.Common.CausalHistory
 /-!
 # Direct-liveness toolkit
 
@@ -17,7 +17,7 @@ namespace LeanDag
 namespace Hydrozoan
 
 variable {Replica BlockId : Type*} [Fintype Replica] [DecidableEq Replica]
-  [DecidableEq BlockId] [F : Faults Replica]
+  [DecidableEq BlockId] [F : LeanDag.Hydrozoan.Faults Replica]
 
 /-- `q_cert ≤ q` — Phase 2's "slow path collectible" row, as a lemma. -/
 theorem qCert_le_q : qCert Replica ≤ q Replica := by
@@ -46,6 +46,36 @@ theorem qFast_le_card_correct
 
 section Wave
 
+/-- **Coverage toward a candidate over two layers makes a certificate**:
+every quorum block one round up references the candidate, and every
+quorum block two rounds up references each of those.
+`isCertificate_of_synchronised` with its antecedent cut to what it
+reads, and stated without a schedule or a carrier so that
+Optimal-Hydrozoan can take it at its own universe. -/
+theorem isCertificate_of_coversToward {U : BlockUniverse Replica BlockId}
+    {T : Finset Replica} {r : ℕ} {L : BlockId}
+    (hcard : q Replica ≤ T.card)
+    (hpop1 : ∀ v ∈ T, ∃ b ∈ U.ids, (U.block b).creator = v ∧ (U.block b).round = r + 1)
+    (hct : ∀ n, r ≤ n → n < r + 2 →
+      ∀ b ∈ U.ids, (U.block b).creator ∈ T → (U.block b).round = n + 1 →
+      ∀ a ∈ U.ids, (U.block a).creator ∈ T → (U.block a).round = n →
+        Reaches U a L → a ∈ (U.block b).refs)
+    (hL : L ∈ U.ids) (hLr : (U.block L).round = r) (hLc : (U.block L).creator ∈ T)
+    {C : BlockId} (hC : C ∈ U.ids) (hCa : (U.block C).creator ∈ T)
+    (hCr : (U.block C).round = r + 2) :
+    IsCertificate U C L := by
+  have hsub : T ⊆ creatorsOf U.block (voteBlocks U C L) := by
+    intro v hv
+    obtain ⟨b, hb, hba, hbr⟩ := hpop1 v hv
+    have hbT : (U.block b).creator ∈ T := by rw [hba]; exact hv
+    have hvote : L ∈ (U.block b).refs :=
+      hct r le_rfl (by omega) b hb hbT hbr L hL hLc hLr Relation.ReflTransGen.refl
+    have href : b ∈ (U.block C).refs :=
+      hct (r + 1) (by omega) (by omega) C hC hCa (by rw [hCr]) b hb hbT hbr
+        (Relation.ReflTransGen.single (show RefStepFrom U.block b L from hvote))
+    exact mem_creatorsOf.mpr ⟨b, Finset.mem_filter.mpr ⟨href, hvote⟩, hba⟩
+  exact le_trans (qCert_le_q (Replica := Replica)) (le_trans hcard (Finset.card_le_card hsub))
+
 variable [S : Slots Replica] {U : BlockUniverse Replica BlockId}
   {T : Finset Replica} {R k : ℕ}
 
@@ -54,7 +84,7 @@ omit [DecidableEq BlockId] in
 theorem exists_isLeaderBlock_of_populated
     (hpop : PopulatedOn U T (S.slotRound k)) (hlead : S.leader k ∈ T) :
     ∃ L, IsLeaderBlock U k L := by
-  obtain ⟨L, hL, hLr, hLa⟩ := hpop _ hlead
+  obtain ⟨L, hL, hLa, hLr⟩ := hpop _ hlead
   exact ⟨L, hL, hLr, hLa⟩
 
 /-- Every `T`-member supports the leader block at the voting round. -/
@@ -62,11 +92,11 @@ theorem subset_supporters_of_synchronised
     (hs : SynchronisedOn U T R) (hRk : R ≤ S.slotRound k)
     (hpop1 : PopulatedOn U T (S.slotRound k + 1))
     {L : BlockId} (hL : IsLeaderBlock U k L)
-    (hLT : (U.block L).author ∈ T) :
+    (hLT : (U.block L).creator ∈ T) :
     T ⊆ supporters U L (S.slotRound k + 1) := by
   intro v hv
-  obtain ⟨b, hb, hbr, hba⟩ := hpop1 v hv
-  have hvote : L ∈ (U.block b).parents :=
+  obtain ⟨b, hb, hba, hbr⟩ := hpop1 v hv
+  have hvote : L ∈ (U.block b).refs :=
     hs (S.slotRound k) hRk b hb hbr (by rw [hba]; exact hv)
       L hL.1 hL.2.1 hLT
   exact mem_supporters.mpr ⟨b, hb, hbr, hvote, hba⟩
@@ -77,21 +107,21 @@ theorem isCertificate_of_synchronised
     (hs : SynchronisedOn U T R) (hRk : R ≤ S.slotRound k)
     (hpop1 : PopulatedOn U T (S.slotRound k + 1))
     {L : BlockId} (hL : IsLeaderBlock U k L)
-    (hLT : (U.block L).author ∈ T)
+    (hLT : (U.block L).creator ∈ T)
     {C : BlockId} (hC : C ∈ U.ids)
     (hCr : (U.block C).round = S.slotRound k + 2)
-    (hCa : (U.block C).author ∈ T) :
+    (hCa : (U.block C).creator ∈ T) :
     IsCertificate U C L := by
-  have hsub : T ⊆ authorsOf U.block (voteBlocks U C L) := by
+  have hsub : T ⊆ creatorsOf U.block (voteBlocks U C L) := by
     intro v hv
-    obtain ⟨b, hb, hbr, hba⟩ := hpop1 v hv
-    have href : b ∈ (U.block C).parents :=
+    obtain ⟨b, hb, hba, hbr⟩ := hpop1 v hv
+    have href : b ∈ (U.block C).refs :=
       hs (S.slotRound k + 1) (by omega) C hC hCr hCa
         b hb hbr (by rw [hba]; exact hv)
-    have hvote : L ∈ (U.block b).parents :=
+    have hvote : L ∈ (U.block b).refs :=
       hs (S.slotRound k) hRk b hb hbr (by rw [hba]; exact hv)
         L hL.1 hL.2.1 hLT
-    exact mem_authorsOf.mpr
+    exact mem_creatorsOf.mpr
       ⟨b, Finset.mem_filter.mpr ⟨href, hvote⟩, hba⟩
   exact le_trans (qCert_le_q (Replica := Replica))
     (le_trans hcard (Finset.card_le_card hsub))
@@ -103,16 +133,16 @@ theorem slowCommit_of_synchronised
     (hpop1 : PopulatedOn U T (S.slotRound k + 1))
     (hpop2 : PopulatedOn U T (S.slotRound k + 2))
     {L : BlockId} (hL : IsLeaderBlock U k L)
-    (hLT : (U.block L).author ∈ T) :
+    (hLT : (U.block L).creator ∈ T) :
     SlowCommit U L (S.slotRound k) := by
   have hsub : T ⊆ certifiers U L (S.slotRound k) := by
     intro v hv
-    obtain ⟨C, hC, hCr, hCa⟩ := hpop2 v hv
+    obtain ⟨C, hC, hCa, hCr⟩ := hpop2 v hv
     have hcert : IsCertificate U C L :=
       isCertificate_of_synchronised hcard hs hRk hpop1 hL hLT hC hCr
         (by rw [hCa]; exact hv)
-    exact mem_authorsOf.mpr
-      ⟨C, mem_certificates.mpr ⟨hC, hCr, hcert⟩, hCa⟩
+    exact mem_creatorsOf.mpr
+      ⟨C, mem_certificatesAt.mpr ⟨hC, hCr, hcert⟩, hCa⟩
   exact le_trans (qSlow_le_q (Replica := Replica))
     (le_trans hcard (Finset.card_le_card hsub))
 
@@ -121,20 +151,16 @@ end Wave
 /-- Certificates are universe members. -/
 theorem certificates_subset_ids {U : BlockUniverse Replica BlockId}
     {L : BlockId} {r : ℕ} : certificates U L r ⊆ U.ids :=
-  fun _ hC => (mem_certificates.mp hC).1
+  fun _ hC => (mem_certificatesAt.mp hC).1
 
-/-- A universe-level slow commit is a slow commit at the eventual
-view. -/
-theorem slowCommitInView_full_of_slowCommit
-    {U : BlockUniverse Replica BlockId} {L : BlockId} {r : ℕ}
-    (h : SlowCommit U L r) : SlowCommitInView U (View.full U) L r := by
-  have hinter : certificatesInView U (View.full U) L r
-      = certificates U L r := by
-    simp only [certificatesInView, View.full]
-    exact Finset.inter_eq_left.mpr certificates_subset_ids
-  simp only [SlowCommitInView, certifiersInView, hinter]
-  simp only [SlowCommit, certifiers] at h
-  exact h
+/-- A view caught up to the decision round holds every certificate, so
+a universe-level slow commit is a slow commit in that view. -/
+theorem slowCommitInView_of_coversUpto
+    {U : BlockUniverse Replica BlockId} {V : View U} {L : BlockId} {r : ℕ}
+    (h : SlowCommit U L r) (hcov : V.CoversUpto (r + 2)) :
+    SlowCommitInView U V L r :=
+  HoldsAtLeast.of_coversUpto
+    (fun C hC => ⟨(mem_certificatesAt.mp hC).1, (mem_certificatesAt.mp hC).2.1.le⟩) hcov h
 
 end Hydrozoan
 

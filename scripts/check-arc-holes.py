@@ -5,14 +5,32 @@ Scoped to the arcs of this repository under the model/proof partition —
 Mahi-Mahi (`docs/mahi-mahi.md` §9), Black Marlin (`docs/black-marlin.md`
 §7), FinWhale (`docs/finwhale.md` §15) and Barnacle
 (`docs/barnacle.md` §10) — over both their source and
-their witness directories. Two checks, after stripping comments so prose may use the
+their witness directories. Three checks, after stripping comments so prose may use the
 words:
 
   sorry / admit / axiom / native_decide / unsafe / partial
       are absent everywhere in the arc;
   Statement.lean files are proof-free  (no theorem/lemma/example/instance),
   Model/ files are theorem-free        (no theorem/lemma/example; instances
-                                        by `inferInstanceAs` are allowed).
+                                        by `inferInstanceAs` are allowed);
+  a `Properties/Derived/` name appears in no conformance statement
+      (those are consequences of the band, so naming one where a protocol
+       declares what it owes invents an obligation — target-properties
+       §11.4b);
+  no synchrony under Properties/       (SynchronisedOn, CoversToward, OfCoverage
+                                        and the Timed namespace are the timed
+                                        model's, `LeanDag/Timed/Coverage.lean`;
+                                        certification is the properties' only
+                                        liveness antecedent — target-properties
+                                        §11.16 — and this keeps it so);
+  View.full appears in no Statement.lean and no Model/ file
+                                       (a liveness statement concludes on a
+                                        view a validator can hold — issue #12;
+                                        `full := ...` record fields and the
+                                        `def View.full` site itself are
+                                        vocabulary, not claims, and are exempt,
+                                        as are the allowlisted files awaiting
+                                        restatement).
 
 Part of the trusted base: meant to be read once and believed. Keep it dumb.
 """
@@ -24,10 +42,34 @@ from pathlib import Path
 FORBIDDEN = re.compile(r"\b(sorry|admit|axiom|native_decide|unsafe|partial)\b")
 STATEMENT_FORBIDDEN = re.compile(r"^\s*(theorem|lemma|example|instance)\b")
 MODEL_FORBIDDEN = re.compile(r"^\s*(theorem|lemma|example)\b")
+FULLVIEW = re.compile(r"\bView\.full\b")
+FULLVIEW_FIELD = re.compile(r"^\s*full\s*:=")
+FULLVIEW_DEF = re.compile(r"^\s*def View\.full\b")
+FULLVIEW_ALLOW = {
+    "LeanDag/MahiMahi/Liveness/Statement.lean",    # MM3a-c await restatement (issue #12)
+    "LeanDag/BlackMarlin/Liveness/Statement.lean",  # BML2 awaits restatement (issue #12)
+}
 ROOT = Path(__file__).resolve().parent.parent
-ARCS = ["MahiMahi", "BlackMarlin", "FinWhale", "Barnacle", "Hydrozoan", "OptimalHydrozoan",
-        "RedSnapper"]
+ARCS = ["Mysticeti", "MahiMahi", "BlackMarlin", "FinWhale", "Barnacle", "Hydrozoan",
+        "OptimalHydrozoan"]
 SOURCES = [f"{top}/{arc}" for arc in ARCS for top in ("LeanDag", "LeanDagTest")]
+DERIVED = ROOT / "LeanDag/Properties/Derived"
+PROPERTIES = ROOT / "LeanDag/Properties"
+SYNCHRONY = re.compile(r"\b(SynchronisedOn|SynchronisedFrom|Synchronised|CoversToward|OfCoverage|Timed)\b")
+DECL = re.compile(r"^\s*(?:@\[[^\]]*\]\s*)?(?:noncomputable\s+)?"
+                  r"(?:def|abbrev|structure|class|inductive)\s+([A-Za-z_][\w'.]*)")
+
+
+def derived_names():
+    """The properties stated in `Properties/Derived/`: consequences of the
+    band that no protocol proves, so no conformance statement may name one."""
+    names = set()
+    for path in sorted(DERIVED.glob("*.lean")):
+        for _, code in strip_comments(path.read_text(encoding="utf-8").splitlines()):
+            match = DECL.match(code)
+            if match and "." not in match.group(1):
+                names.add(match.group(1))
+    return names
 
 
 def lean_files():
@@ -62,6 +104,8 @@ def strip_comments(lines):
 
 def main():
     holes = []
+    derived = derived_names()
+    conformance = re.compile(r"\b(" + "|".join(sorted(derived)) + r")\b") if derived else None
     for path in lean_files():
         rel = path.relative_to(ROOT)
         in_model = "Model" in path.parent.parts
@@ -73,16 +117,34 @@ def main():
                 match = STATEMENT_FORBIDDEN.search(code)
                 if match:
                     holes.append(f"{rel}:{lineno}: {match.group(1)} (proof material in a Statement file)")
+                if conformance is not None and "Properties" in path.parent.parts:
+                    match = conformance.search(code)
+                    if match:
+                        holes.append(f"{rel}:{lineno}: {match.group(1)} "
+                                     "(a Derived/ consequence named as an obligation)")
             elif in_model and str(rel).startswith("LeanDag/"):
                 match = MODEL_FORBIDDEN.search(code)
                 if match:
                     holes.append(f"{rel}:{lineno}: {match.group(1)} (theorem material in a Model file)")
+            if (path.name == "Statement.lean" or (in_model and str(rel).startswith("LeanDag/"))) \
+                    and str(rel) not in FULLVIEW_ALLOW \
+                    and FULLVIEW.search(code) and not FULLVIEW_FIELD.search(code) \
+                    and not FULLVIEW_DEF.search(code):
+                holes.append(f"{rel}:{lineno}: View.full (a liveness statement concludes on a view)")
+    for path in sorted(PROPERTIES.rglob("*.lean")):
+        rel = path.relative_to(ROOT)
+        for lineno, code in strip_comments(path.read_text(encoding="utf-8").splitlines()):
+            match = SYNCHRONY.search(code)
+            if match:
+                holes.append(f"{rel}:{lineno}: {match.group(1)} (synchrony named under Properties/; "
+                             "certification is the interface — see LeanDag/Timed/Coverage.lean)")
     if holes:
         print("Partitioned-arc discipline violations:")
         for hole in holes:
             print(f"  {hole}")
         return 1
-    print(f"Partitioned arcs ({', '.join(ARCS)}): no holes, discipline intact.")
+    print(f"Partitioned arcs ({', '.join(ARCS)}): no holes, discipline intact; "
+          "no synchrony under Properties/.")
     return 0
 
 

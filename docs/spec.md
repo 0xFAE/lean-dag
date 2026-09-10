@@ -107,7 +107,7 @@ Remaining notes:
   general form. Throughout, `n` abbreviates `Fintype.card Validator`;
   quorums are `n − f`, which at the boundary `n = 3f+1` (where every
   concrete witness sits) is the familiar `2f+1`.
-- Rounds are plain `ℕ` throughout. No `Round` abbreviation — it would buy
+- Rounds are plain `ℕ` throughout. No `Round` abbreviation — it would add
   nothing, and two spellings for one type reliably drift apart.
 
 Five consequences worth naming once rather than re-deriving at each use:
@@ -328,12 +328,12 @@ even though it exists.
 "Enough" admits two thresholds, and the gap between them is the only thing
 separating the two theorems:
 
-- **`p + f + 1 - n`** (`reaches_of_correct_support`), where
+- **`p + f + 1 - n`** (`reaches_of_honest_support`), where
   `p = |authorsAt U (r+1)|`. A round-`(r+2)` block draws its `n−f`
   referenced creators from those same `p`, so it misses at most
   `p - (n−f)` and cannot dodge `p + f + 1 - n` (the old `p - 2f` at
   `n = 3f+1`).
-- **`f+1`** (`reaches_of_correct_support_of_card`), uniform. Since `p ≤ n`
+- **`f+1`** (`reaches_of_honest_support_of_card`), uniform. Since `p ≤ n`
   always, this is the corollary: `n−f` named out of at most `n` means at
   most `f` missed.
 
@@ -356,7 +356,7 @@ that comes out identical.)
 
 **The hitting lemma is the actual primitive.** Coverage reaches a *fixed*
 block; M2 must reach *some certificate*, a target set. So the primitive is
-`exists_mem_refs_of_correct_support`: if `f+1`-or-so correct validators
+`exists_mem_refs_of_honest_support`: if `f+1`-or-so correct validators
 published round-`n` blocks satisfying a predicate `P`, no round-`(n+1)` block
 can avoid referencing one. It is stated with `P` a bare predicate rather than
 a `Finset BlockId`, since only the *validator* set is ever counted — so the
@@ -396,7 +396,7 @@ Which form to use is determined by how supporters are obtained:
 
   **Unused by Phase 1 and 1b, required from Phase 2 on.** T3's base case
   went through T0' until the coverage refactor (§4 *Coverage*) and now calls
-  `reaches_of_correct_support_of_card`, whose intersection has a different
+  `reaches_of_honest_support_of_card`, whose intersection has a different
   shape: one quorum against one *correct* set of size `f+1`, rather than two
   quorums. Phases 1 and 1b therefore reach a correct validator via
   `card_inter_correct_of_quorum` instead.
@@ -417,7 +417,7 @@ Which form to use is determined by how supporters are obtained:
   `round_le_of_reaches`: following a reference strictly decreases the round
   (§3.2's predecessor condition), so causal history never climbs.
 
-  Earlier drafts called this "well-founded", which overstates it. T3 inducts
+  Calling this "well-founded" overstates it. T3 inducts
   on the round *number*, an ordinary `ℕ`, not on `Reaches`; no
   `WellFoundedRelation` instance is needed, only the fact that a block's
   references sit at a strictly smaller round. Supporting lemmas:
@@ -836,29 +836,29 @@ stages need very different machinery:
 
 ## 6. Layout
 
-- `LeanDag/Validators.lean` — §2 (all five fault-counting consequences), T0
-- `LeanDag/Block.lean` — §3.1 (`Block`), §3.2 (`creatorsOf`, `creators`,
+- `LeanDag/Common/Validators.lean` — §2 (all five fault-counting consequences), T0
+- `LeanDag/Common/Block.lean` — §3.1 (`Block`), §3.2 (`creatorsOf`, `creators`,
   `ValidWrt`), T0', and `nonempty_of_creatorsOf_card_pos` (a quorum of
   authors needs a nonempty id set — used in three files)
-- `LeanDag/BlockDag.lean` — §3.3 (universe), §3.5 (`View`), T1, and
+- `LeanDag/Common/BlockDag.lean` — §3.3 (universe), §3.5 (`View`), T1, and
   `BlockUniverse.exists_common_mem_of_quorums` (two quorum-backed sets of
   round-`n` blocks share a block — the "peel off one certification layer"
   step)
-- `LeanDag/CausalHistory.lean` — §3.4, T2, T6a
-- `LeanDag/Support.lean` — `blocksAt`, `authorsAt`, `supporters`,
+- `LeanDag/Common/CausalHistory.lean` — §3.4, T2, T6a
+- `LeanDag/Common/Support.lean` — `blocksAt`, `authorsAt`, `supporters`,
   `correctSupporters`, `blames`, the hitting/propagation/coverage lemmas
   (§4 *Coverage*), and the counting fact that a quorum of blamers caps
   supporters below a quorum. The whole "who backs what" layer: Mysticeti's
   *voters* are exactly `supporters` at the following round, and its *blames*
   are the complement.
-- `LeanDag/Persistence.lean` — T3
-- `LeanDag/CommonCore.lean` — `correctBlocksAt`, T3a and T3c (Phase 1b)
-- `LeanDag/Mysticeti.lean` — the whole of Phase 2: the vote/certificate
+- `LeanDag/Common/Persistence.lean` — T3
+- `LeanDag/Common/CommonCore.lean` — `correctBlocksAt`, T3a and T3c (Phase 1b)
+- `LeanDag/Mysticeti/Rule.lean` — the whole of Phase 2: the vote/certificate
   machinery and M1–M3, M5′, M5 (Stage A); the slot schedule, `DirectCommitIn`
   and the `Decided` relation (C1); the view-relative lifts (C2); M4 and M6
   (C3–C4). Plus the Phase 3 fragments that need no ordering assumption:
   `commitSeq` and the `ledgerSet` / `OutputAt` no-retraction results.
-- `LeanDag/Commit.lean` — T4–T5 (Appendix A, unscheduled)
+- T4–T5 (Appendix A, unscheduled) — no file, never built
 - `LeanDagTest/` — concrete models confirming the definitions are
   satisfiable. Built by default, so a change that empties `ValidWrt` or
   `BlockUniverse` fails the build rather than silently making every theorem
@@ -912,19 +912,19 @@ Spec label to Lean identifier, for the parts that are built.
 | T0 | `exists_correct_mem_inter` | `Validators.lean` |
 | T0' | `exists_correct_mem_creators_inter` | `Block.lean` |
 | — | `nonempty_of_creatorsOf_card_pos` | `Block.lean` |
-| T1 | `BlockUniverse.eq_of_creator_eq` | `BlockDag.lean` |
+| T1 | `eq_of_creator_eq` | `BlockRecord.lean` |
 | — | `View` | `BlockDag.lean` |
 | — | `BlockUniverse.exists_common_mem_of_quorums` | `BlockDag.lean` |
 | T2 | `round_le_of_reaches` | `CausalHistory.lean` |
 | T6a | `View.mem_of_reaches` | `CausalHistory.lean` |
 | T6a (usable form) | `View.exists_reaches_iff` | `CausalHistory.lean` |
-| Hitting, `p − 2f` | `exists_mem_refs_of_correct_support` | `Support.lean` |
-| Hitting, `f+1` | `exists_mem_refs_of_correct_support_of_card` | `Support.lean` |
+| Hitting, `p − 2f` | `exists_mem_refs_of_honest_support` | `Support.lean` |
+| Hitting, `f+1` | `exists_mem_refs_of_honest_support_of_card` | `Support.lean` |
 | Propagation | `reaches_pred_of_round_le` | `Support.lean` |
-| Coverage, `p − 2f` | `reaches_of_correct_support` | `Support.lean` |
-| Coverage, `f+1` | `reaches_of_correct_support_of_card` | `Support.lean` |
-| — | `blames`, `blames_inter_supporters_subset_byzantine` | `Support.lean` |
-| — | `card_supporters_le_of_card_blames` | `Support.lean` |
+| Coverage, `p − 2f` | `reaches_of_honest_support` | `Support.lean` |
+| Coverage, `f+1` | `reaches_of_honest_support_of_card` | `Support.lean` |
+| — | `blames`, `not_mem_of_supports_of_blames` | `Support.lean` |
+| — | `card_supporters_add_card_blames_le` | `Support.lean` |
 | T3 | `reaches_of_quorum_support` | `Persistence.lean` |
 | T3a | `exists_correct_common_support` | `CommonCore.lean` |
 | T3c | `exists_common_correct_ancestor` | `CommonCore.lean` |
@@ -937,12 +937,12 @@ Spec label to Lean identifier, for the parts that are built.
 | M4 (view form) | `certifiedIn_iff_of_view` | `Mysticeti.lean` |
 | C1 | `Slots`, `IsLeaderBlock`, `DirectCommitIn`, `Decided` | `Mysticeti.lean` |
 | C2 | `directCommit_of_directCommitIn`, `certifiedIn_of_directCommitIn` | `Mysticeti.lean` |
-| M6 | `decided_unique`, `decided_agree` | `Mysticeti.lean` |
-| M6 (corollaries) | `eq_of_decided_commit`, `not_decided_skip_of_decided_commit` | `Mysticeti.lean` |
+| M6 | `decided_unique` (`Mysticeti.lean`), `decided_agree` | `Anchored.lean` |
+| M6 (corollaries) | `eq_of_decided_commit`, `not_decided_skip_of_decided_commit` | `Anchored.lean` |
 | M6 (sequence) | `commitSeq`, `commitSeq_agree` | `Mysticeti.lean` |
-| No retraction | `ledgerSet_mono`, `ledgerSet_agree` | `Mysticeti.lean` |
-| No retraction | `OutputAt`, `outputAt_unique`, `outputAt_agree` | `Mysticeti.lean` |
-| T4–T5 | *(unscheduled, Appendix A)* | `Commit.lean` |
+| No retraction | `ledgerSet_mono`, `ledgerSet_agree` | `Ledger.lean` |
+| No retraction | `OutputAt`, `outputAt_unique`, `outputAt_agree` | `Ledger.lean` |
+| T4–T5 | *(unscheduled, Appendix A)* | — |
 
 `CommonCore.lean` is the one file importing `Mathlib` wholesale rather than
 targeted modules: the counting argument draws on big operators, ordered

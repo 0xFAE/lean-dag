@@ -1,11 +1,12 @@
-import LeanDag.Hydrozoan.Model.DirectRules
-
+import LeanDag.Hydrozoan.Model.Decided
 /-!
 # Direct-rule instances and bridges
 
 Generated: decidability for the top-level rule predicates (so witness
-models settle them by `decide`) and the "views only under-report" bridge
-lemmas. Nothing here is part of the audit surface.
+models settle them by `decide`), the "views only under-report" bridge
+lemmas, and what the anchored relation's laws ask of the direct rules:
+they grow with the view, and the skip reads the schedule only at its
+slot. Nothing here is part of the audit surface.
 -/
 
 namespace LeanDag
@@ -13,7 +14,7 @@ namespace LeanDag
 namespace Hydrozoan
 
 variable {Replica BlockId : Type*} [Fintype Replica] [DecidableEq Replica]
-  [DecidableEq BlockId] [F : Faults Replica]
+  [DecidableEq BlockId] [F : LeanDag.Hydrozoan.Faults Replica]
   {U : BlockUniverse Replica BlockId}
 
 instance decidableFastCommit (L : BlockId) (r : ℕ) :
@@ -24,24 +25,12 @@ instance decidableSlowCommit (L : BlockId) (r : ℕ) :
     Decidable (SlowCommit U L r) :=
   inferInstanceAs (Decidable (qSlow Replica ≤ (certifiers U L r).card))
 
-instance decidableFastCommitInView (V : View U) (L : BlockId) (r : ℕ) :
-    Decidable (FastCommitInView U V L r) :=
-  inferInstanceAs (Decidable (qFast Replica ≤ (supportersInView U V L (r + 1)).card))
-
-instance decidableSlowCommitInView (V : View U) (L : BlockId) (r : ℕ) :
-    Decidable (SlowCommitInView U V L r) :=
-  inferInstanceAs (Decidable (qSlow Replica ≤ (certifiersInView U V L r).card))
-
 section Skip
 
 variable [S : Slots Replica]
 
 instance decidableSkippedLeader (k : ℕ) : Decidable (SkippedLeader U k) :=
-  inferInstanceAs (Decidable (qFast Replica ≤ (blames U k).card))
-
-instance decidableSkippedLeaderInView (V : View U) (k : ℕ) :
-    Decidable (SkippedLeaderInView U V k) :=
-  inferInstanceAs (Decidable (qFast Replica ≤ (blamesInView U V k).card))
+  inferInstanceAs (Decidable (qFast Replica ≤ (slotBlames U k).card))
 
 end Skip
 
@@ -62,6 +51,28 @@ theorem skippedLeader_of_skippedLeaderInView [S : Slots Replica] {V : View U}
     {k : ℕ} (h : SkippedLeaderInView U V k) : SkippedLeader U k :=
   le_trans h
     (Finset.card_le_card (Finset.image_subset_image Finset.inter_subset_left))
+
+/-! ## The rule's data -/
+
+section Rule
+
+variable [LinearOrder BlockId]
+
+@[simp] theorem hydrozoanAnchored_wave : (hydrozoanAnchored Replica BlockId).wave = 2 := rfl
+
+@[simp] theorem hydrozoanAnchored_rungs : (hydrozoanAnchored Replica BlockId).rungs = 2 := rfl
+
+instance (V : View U) (L : BlockId) (r : ℕ) :
+    Decidable ((hydrozoanAnchored Replica BlockId).Commit U V L r) :=
+  inferInstanceAs (Decidable (FastCommitInView U V L r ∨ SlowCommitInView U V L r))
+
+instance (V : View U) (S : Slots Replica) (k : ℕ) :
+    Decidable ((hydrozoanAnchored Replica BlockId).Skip U V S k) :=
+  inferInstanceAs (Decidable (SkippedLeaderInView (S := S) U V k))
+
+end Rule
+
+/-! ## The skip reads the schedule at its slot -/
 
 end Hydrozoan
 

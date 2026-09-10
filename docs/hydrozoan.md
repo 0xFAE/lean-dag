@@ -83,11 +83,11 @@ Three consequences shape the arc.
 |:---|:---|
 | Model and thresholds (`algorithms.tex`) | `Model/Faults.lean` — `Faults`, `p`, `q`, `qFast`, `qCert`, `qSlow`, `qWeak`, `Correct`, `NonByzantine` |
 | DAG-building layer (`algorithms.tex`) | `Model/Block.lean` (`ValidWrt`), `Model/BlockUniverse.lean`, `Model/View.lean` |
-| `Link` | `Model/CausalHistory.lean` — `Reaches` |
-| Waves and pipelining, `ProposeRound`, `VotingRound`, `DecisionRound`, `GetLeaderBlocks` | `Model/Slots.lean` — `Slots`, `votingRound`, `decisionRound`, `IsLeaderBlock` |
+| `Link` | the shared `Reaches` (`LeanDag/Common/CausalHistory.lean`) |
+| Waves and pipelining, `ProposeRound`, `VotingRound`, `DecisionRound`, `GetLeaderBlocks` | the shared `Common/Slots.lean` (`Slots`), `Common/Leader.lean` (`votingRound`, `IsLeaderBlock`); `decisionRound` in `Model/DirectRules.lean` |
 | `IsVote`, `IsCertificate`, `FastCommittedLeader`, `SlowCommittedLeader`, `SkippedLeader` | `Model/DirectRules.lean` |
-| `TryIndirectDecide`, `DecideFromAnchor` | `Model/IndirectRules.lean` (`EligibleAsAnchor`, `CertifiedIn`, `WeakLinked`), `Model/Decided.lean` (`Decided`) |
-| after GST | `Model/Liveness.lean` — `PopulatedOn`, `SynchronisedOn`, `View.full` |
+| `TryIndirectDecide`, `DecideFromAnchor` | `Model/IndirectRules.lean` (`CertifiedIn`, `WeakLinked`), `Model/Decided.lean` (`hydrozoanAnchored`, the rule as an instance of the shared anchored relation `LeanDag/Common/Anchored.lean`, whose eligibility `EligibleAt` at wave two is the paper's `r_decision < s.round`; `Decided`) |
+| after GST | `Model/Liveness.lean` — `PopulatedOn`, `SynchronisedOn`, `View.full`, `View.CoversUpto` |
 | `lem:thresholds` (the slack-cap table) | `ThresholdArithmetic/` (HZ1) |
 | slot safety, the two-case consistency argument | `DirectSafety/` (HZ2), `SlotAgreement/` (HZ3) |
 | `ExtendCommitSeq`, `LinearizeSubDags`, prefix consistency | `PrefixAgreement/` (HZ4) |
@@ -130,9 +130,9 @@ a predicate on `(blk, b)`:
 ```lean
 structure ValidWrt (blk : BlockId → Block Replica BlockId)
     (b : Block Replica BlockId) : Prop where
-  predecessor : ∀ i ∈ b.parents, (blk i).round + 1 = b.round
-  distinct_authors : ∀ i ∈ b.parents, ∀ j ∈ b.parents,
-    (blk i).author = (blk j).author → i = j
+  predecessor : ∀ i ∈ b.refs, (blk i).round + 1 = b.round
+  distinct_creators : ∀ i ∈ b.refs, ∀ j ∈ b.refs,
+    (blk i).creator = (blk j).creator → i = j
   quorum : 0 < b.round → q Replica ≤ (authors blk b).card
 ```
 
@@ -216,7 +216,7 @@ def WeakLinked (U : BlockUniverse Replica BlockId) (A L : BlockId)
     (r : ℕ) : Prop :=
   ∃ s : Finset BlockId,
     (∀ b ∈ s, b ∈ blocksAt U (r + 1) ∧ IsVote U b L ∧ Reaches U A b) ∧
-    qWeak Replica ≤ (authorsOf U.block s).card
+    qWeak Replica ≤ (creatorsOf U.block s).card
 ```
 
 `Decided U V k v` is an inductive relation with six constructors: the
@@ -302,7 +302,10 @@ delivery primitives is out of scope (§12).
 **HZ5 — direct liveness** (`DirectLiveness/`). A quorum-sized correct
 `T`, synchronised from some `R` at or before the wave and populated
 through its three rounds, commits its correct leader through the slow
-path, and the verdict is derivable at the eventual view:
+path, and the verdict is derivable on any view caught up to the
+decision round (`View.CoversUpto` — the certificates sit there, so a
+caught-up view holds them; the eventual view is caught up to every
+horizon, so the whole-universe reading is the special case):
 
 ```lean
 def CommitLiveness (U : BlockUniverse Replica BlockId) : Prop :=
@@ -315,9 +318,11 @@ def CommitLiveness (U : BlockUniverse Replica BlockId) : Prop :=
     PopulatedOn U T (S.slotRound k + 1) →
     PopulatedOn U T (S.slotRound k + 2) →
     S.leader k ∈ T →
+    ∀ V : View U,
+      V.CoversUpto (S.slotRound k + 2) →
     ∃ L, IsLeaderBlock U k L ∧
       SlowCommit U L (S.slotRound k) ∧
-      Decided U (View.full U) k (some L)
+      Decided U V k (some L)
 ```
 
 `FastLatency` and `SkipLatency` are stated in the same file and kept
@@ -329,8 +334,10 @@ verifies is that the guaranteed path is the slow one.
 
 **HZ6 — indirect liveness** (`IndirectLiveness/`), pure
 decision-relation combinatorics with no synchrony, population or fault
-hypothesis. `AnchoredTotality`: once a nearest eligible committed anchor
-exists, some rung fires. `DecidedBelowRun`: `c` consecutive committed
+hypothesis, now the generic `(hydrozoanAnchored ..).Total` and
+`.DecidedBelowRun` (`Common/Anchored.lean`) at Hydrozoan's rung choice.
+`Total`: once a nearest eligible committed anchor exists, some rung
+fires. `DecidedBelowRun`: `c` consecutive committed
 slots, long enough that the run's end anchors everything below
 (`SpansEligible`, which the pipelined schedule satisfies exactly at
 `c ≥ 3`), decide every slot below the run. One committed slot does not
@@ -340,16 +347,20 @@ three-round run does.
 **HZ7 — eventual decision** (`EventualDecision/`), the composition.
 `RunDecidesBelow` is the per-universe workhorse with the run's location
 explicit; `RunsRecur` is the schedule-only claim that fairness places a
-`T`-led run past any slot and any round, from
+`T`-led run past any slot and any round, from the shared
+`Common/Slots.lean`:
 
 ```lean
-def FairRunOn (T : Finset Replica) (c : ℕ) : Prop :=
+def FairRunOn {Validator : Type*} [S : Slots Validator]
+    (T : Finset Validator) (c : ℕ) : Prop :=
   ∀ k, ∃ k', k ≤ k' ∧ ∀ i, i < c → S.leader (k' + i) ∈ T
 ```
 
+with `Slots.exists_run_past` placing one; Hydrozoan's own copy is gone.
 The composed form — for every slot `k` a bound `b ≥ k` with every slot
-below `b` decided at the eventual view — is `ledgerProgress` on the
-proof side; the audited content is the two Props.
+below `b` decided on any view caught up to the run's last decision
+round — is `ledgerProgress` on the proof side; the audited content is
+the two Props.
 
 ## 8. Grounding
 
@@ -366,10 +377,10 @@ period is a consistent scenario of the model at every scale, and the
 `T`-only clause is what earns the `q ≤ |T|` premise, since a `T`-only
 universe cannot validly populate a round below quorum size.
 `GroundedProgress`: under the wave-aligned rotation, past every slot
-some universe commits a bound with every slot below it decided. The
-last is an achievability claim — satisfiability of the conclusion, not
-the route — and its universe is not constrained to correct authors
-(§11).
+some universe commits a bound with every slot below it decided, on any
+view caught up to the bound's decision round. The last is an
+achievability claim — satisfiability of the conclusion, not the
+route — and its universe is not constrained to correct authors (§11).
 
 ## 9. Witnesses (`LeanDagTest/Hydrozoan/`)
 
@@ -434,8 +445,9 @@ meet. `Hydrozoan` is in `ARCS` of `scripts/check-arc-holes.py`.
 ```
 LeanDag/Hydrozoan/
   Model/         definitions only — no theorem and no proof term:
-                 Faults (§1), Block, BlockUniverse, View, CausalHistory (§2),
-                 Slots (§3), DirectRules (§4), IndirectRules, Decided (§5),
+                 Faults (§1), Block, BlockUniverse, View (§2; CausalHistory
+                 and Slots are the shared `Common/` ones, by import),
+                 DirectRules (§3, §4), IndirectRules, Decided (§5),
                  Liveness (§7)
   Helpers/       lemma and construction infrastructure; unaudited
   <Result>/Statement.lean   imports Model/ only; `def Statement : Prop`; never a proof

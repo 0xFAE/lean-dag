@@ -1,6 +1,5 @@
 import LeanDag.Hydrozoan.EventualDecision.Proof
 import LeanDagTest.Hydrozoan.IndirectLiveness
-
 /-!
 # Witness: eventual decision fires
 
@@ -32,19 +31,18 @@ namespace Hydrozoan
 
 open LeanDag LeanDag.Hydrozoan
 
-set_option maxRecDepth 16384
-
 /-- Twenty-four blocks: rounds 0–7 × the three correct replicas
 {0, 2, 3} (round `r` holds ids `3r, 3r + 1, 3r + 2`), each non-genesis
 block referencing all three blocks of the round below. -/
 def lk10 : Fin 24 → Block (Fin 4) (Fin 24) := fun i =>
   { round := (i : ℕ) / 3,
-    author := ⟨if (i : ℕ) % 3 = 0 then 0 else (i : ℕ) % 3 + 1,
+    creator := ⟨if (i : ℕ) % 3 = 0 then 0 else (i : ℕ) % 3 + 1,
       by split <;> omega⟩,
-    parents :=
+    refs :=
       if h : (i : ℕ) < 3 then ∅
       else {⟨(i : ℕ) / 3 * 3 - 3, by omega⟩, ⟨(i : ℕ) / 3 * 3 - 2, by omega⟩,
-        ⟨(i : ℕ) / 3 * 3 - 1, by omega⟩} }
+        ⟨(i : ℕ) / 3 * 3 - 1, by omega⟩},
+    payload := () }
 
 /-- The eight-round universe. -/
 def U10 : BlockUniverse (Fin 4) (Fin 24) where
@@ -58,8 +56,8 @@ def U10 : BlockUniverse (Fin 4) (Fin 24) where
 example : IsLeaderBlock U10 2 7 ∧ IsLeaderBlock U10 3 11 ∧
     IsLeaderBlock U10 4 12 := by decide
 
--- Synchronised from round 0 (the round-bounding pattern).
-theorem u10_synchronised : Synchronised U10 0 := by
+-- LeanDag.Hydrozoan.Synchronised from round 0 (the round-bounding pattern).
+theorem u10_synchronised : LeanDag.Hydrozoan.Synchronised U10 0 := by
   intro n hn b hb hbr hbc a ha har hac
   have hmax : ∀ c : Fin 24, (U10.block c).round ≤ 7 := by decide
   have hb2 := hmax b
@@ -70,8 +68,8 @@ theorem u10_synchronised : Synchronised U10 0 := by
     (revert b a; decide)
 
 -- The correct replicas fill every round of the run's span (rounds 2–6).
-theorem u10_populated : ∀ r, Slots.slotRound (Replica := Fin 4) 2 ≤ r →
-    r ≤ Slots.slotRound (Replica := Fin 4) (2 + 3 - 1) + 2 →
+theorem u10_populated : ∀ r, Slots.slotRound (Validator := Fin 4) 2 ≤ r →
+    r ≤ Slots.slotRound (Validator := Fin 4) (2 + 3 - 1) + 2 →
     PopulatedOn U10 (Correct : Finset (Fin 4)) r := by
   intro r h1 h2
   change 1 * (2 / 1) ≤ r at h1
@@ -93,7 +91,7 @@ example : ∀ i, i < 2 → ∃ v, Decided U10 (View.full U10) i v :=
     (by intro i hi
         have : i = 0 ∨ i = 1 ∨ i = 2 := by omega
         rcases this with rfl | rfl | rfl <;> decide)
-    u10_populated
+    u10_populated (View.full U10) (View.coversUpto_full U10 _)
 
 -- The same run applied at R = 2 = slotRound b — the exact boundary of
 -- `R ≤ slotRound b`, killing a strengthening to strict inequality
@@ -107,11 +105,11 @@ example : ∀ i, i < 2 → ∃ v, Decided U10 (View.full U10) i v :=
     (by intro i hi
         have : i = 0 ∨ i = 1 ∨ i = 2 := by omega
         rcases this with rfl | rfl | rfl <;> decide)
-    u10_populated
+    u10_populated (View.full U10) (View.coversUpto_full U10 _)
 
 -- A fairness negative: consecutive slots never share a leader, so a
 -- singleton T is starved at c = 2 — FairRunOn is not trivially true.
-example : ¬ EventualDecision.FairRunOn (Fin 4) {0} 2 := fun h => by
+example : ¬ FairRunOn ({0} : Finset (Fin 4)) 2 := fun h => by
   obtain ⟨k', -, hl⟩ := h 0
   have h0 : ((k' + 0) % 4 : ℕ) = 0 :=
     congrArg Fin.val (Finset.mem_singleton.mp (hl 0 (by omega)))
@@ -123,7 +121,7 @@ example : ¬ EventualDecision.FairRunOn (Fin 4) {0} 2 := fun h => by
 -- starts at every 4k + 2 (leaders 2, 3, 0). Proved from the definition
 -- — finite enumeration cannot reach a ∀-over-ℕ claim.
 theorem fairRun_four :
-    EventualDecision.FairRunOn (Fin 4) (Correct : Finset (Fin 4)) 3 := by
+    FairRunOn (Correct : Finset (Fin 4)) 3 := by
   intro k
   refine ⟨4 * k + 2, by omega, fun i hi => ?_⟩
   have hmem : ∀ m : Fin 4, m ≠ 1 → m ∈ (Correct : Finset (Fin 4)) := by
@@ -135,23 +133,26 @@ theorem fairRun_four :
 -- End-to-end: RunsRecur applied concretely — fairness places a
 -- correct-led run past slot 5 at or after round 3. The bound is opaque
 -- (existential); the concrete-run guard is the application above.
-example : ∃ b, 5 ≤ b ∧ 3 ≤ Slots.slotRound (Replica := Fin 4) b ∧
-    ∀ i, i < 3 → Slots.leader (Replica := Fin 4) (b + i) ∈
+example : ∃ b, 5 ≤ b ∧ 3 ≤ Slots.slotRound (Validator := Fin 4) b ∧
+    ∀ i, i < 3 → Slots.leader (Validator := Fin 4) (b + i) ∈
       (Correct : Finset (Fin 4)) :=
   (EventualDecision.holds (Fin 4) (Fin 24)).2
     (Correct : Finset (Fin 4)) 3 5 3 fairRun_four
 
 -- End-to-end: the composed headline, all hypotheses discharged.
-example : ∃ b, 5 ≤ b ∧ 3 ≤ Slots.slotRound (Replica := Fin 4) b ∧
+example : ∃ b, 5 ≤ b ∧ 3 ≤ Slots.slotRound (Validator := Fin 4) b ∧
     ∀ (U : BlockUniverse (Fin 4) (Fin 24)),
       SynchronisedOn U (Correct : Finset (Fin 4)) 3 →
-      (∀ r, Slots.slotRound (Replica := Fin 4) b ≤ r →
-        r ≤ Slots.slotRound (Replica := Fin 4) (b + 3 - 1) + 2 →
+      (∀ r, Slots.slotRound (Validator := Fin 4) b ≤ r →
+        r ≤ Slots.slotRound (Validator := Fin 4) (b + 3 - 1) + 2 →
         PopulatedOn U (Correct : Finset (Fin 4)) r) →
-      ∀ i, i < b → ∃ v, Decided U (View.full U) i v :=
-  EventualDecision.ledgerProgress (Fin 4) (Fin 24)
-    (Correct : Finset (Fin 4)) 3 5 3
-    (by decide) (by decide) (by omega) spansEligible_four fairRun_four
+      ∀ i, i < b → ∃ v, Decided U (View.full U) i v := by
+  obtain ⟨b, hk, hR, hrest⟩ :=
+    EventualDecision.ledgerProgress (Fin 4) (Fin 24)
+      (Correct : Finset (Fin 4)) 3 5 3
+      (by decide) (by decide) (by omega) spansEligible_four fairRun_four
+  exact ⟨b, hk, hR, fun U hsync hpop =>
+    hrest U hsync hpop (View.full U) (View.coversUpto_full U _)⟩
 
 end Hydrozoan
 

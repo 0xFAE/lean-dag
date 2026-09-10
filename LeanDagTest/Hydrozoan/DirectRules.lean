@@ -1,7 +1,6 @@
-import LeanDag.Hydrozoan.Helpers.Schedule
+import LeanDag.Common.Slots
 import LeanDag.Hydrozoan.Helpers.DirectRules
 import LeanDagTest.Hydrozoan.CausalHistory
-
 /-!
 # Witness: the direct rules fire
 
@@ -27,11 +26,11 @@ instance : Slots (Fin 7) :=
   Slots.uniformSingle 1 (by omega) fun k => ⟨(k + 2) % 7, by omega⟩
 
 -- Slot arithmetic under the pipelined schedule.
-example : votingRound (Fin 7) 0 = 1 ∧ decisionRound (Fin 7) 0 = 2 := by decide
+example : votingRound (Fin 7) 0 = 1 ∧ LeanDag.Hydrozoan.decisionRound (Fin 7) 0 = 2 := by decide
 
 -- Genesis id 2 is slot 0's candidate. Id 3 is not (right round, wrong
--- author); the equivocating id 7 is not either (wrong round and wrong
--- author).
+-- creator); the equivocating id 7 is not either (wrong round and wrong
+-- creator).
 example : IsLeaderBlock U2 0 2 := by decide
 example : ¬ IsLeaderBlock U2 0 3 := by decide
 example : ¬ IsLeaderBlock U2 0 7 := by decide
@@ -49,8 +48,8 @@ example : FastCommit U2 2 0 := by decide
 -- under-report a fast commit (the safe direction), never invent one.
 example : ¬ FastCommitInView U2 V2 2 0 := by decide
 
--- Id 14 certifies id 2: its five parents all vote for 2, from exactly
--- q_cert distinct authors.
+-- Id 14 certifies id 2: its five refs all vote for 2, from exactly
+-- q_cert distinct creators.
 example : voteBlocks U2 14 2 = {7, 9, 10, 12, 13} := by decide
 example : IsCertificate U2 14 2 := by decide
 
@@ -59,13 +58,13 @@ example : IsCertificate U2 14 2 := by decide
 -- further valid round-2 block here WOULD certify id 2. The structural
 -- fast-commit-with-no-possible-certificate witness arrives with the
 -- slot-safety phase.)
-example : certificates U2 2 0 = {14} := by decide
+example : LeanDag.Hydrozoan.certificates U2 2 0 = {14} := by decide
 example : certifiers U2 2 0 = {2} := by decide
 example : ¬ SlowCommit U2 2 0 := by decide
 
--- Nobody blames slot 0 — a fast-committed leader gathers no skip
+-- Nobody slotBlames slot 0 — a fast-committed leader gathers no skip
 -- quorum.
-example : blames U2 0 = ∅ := by decide
+example : slotBlames U2 0 = ∅ := by decide
 example : ¬ SkippedLeader U2 0 := by decide
 
 -- Slot 1 (round 1, led by replica 3): its candidate id 10 has a single

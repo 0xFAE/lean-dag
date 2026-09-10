@@ -1,6 +1,5 @@
 import LeanDag.Minnow.Blocking
-import LeanDagTest.Model
-
+import LeanDagTest.Mysticeti.Model
 /-!
 # Minnow — the skip clause, counted as written, contradicts the quorum
 
@@ -26,8 +25,6 @@ namespace LeanDagTest
 namespace Minnow
 
 open LeanDag LeanDag.Minnow
-
-set_option maxRecDepth 4000000
 
 /-- Round `0` carries one vertex per process; round `1` carries six,
 three of them the equivocator's. -/
