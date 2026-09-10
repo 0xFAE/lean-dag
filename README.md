@@ -13,9 +13,10 @@ safety and liveness — together with further developments built on the
 same foundation, each in its own module consuming the core read-only.
 The core is stated for `n ≥ 3f+1` validators with quorums of size
 `n − f`, over pipelined, multi-leader slot schedules; the variant arcs
-move the committee — `n ≥ 5f+1` for two-round commitment, `n ≥ 5·fb +
-3·fc + 1` for hybrid faults, and a bare majority at `n ≥ 2f+1` for crash
-faults alone.
+move the committee — `n ≥ 5f+1` for two-round commitment,
+`n = 3f + 2p − 1` for a fast path that tolerates `p` missing votes,
+`n ≥ 5·fb + 3·fc + 1` for hybrid faults, and a bare majority at
+`n ≥ 2f+1` for crash faults alone.
 
 ## What is proved
 
@@ -108,6 +109,32 @@ faults alone.
   also proved **necessary**: one validator short, one view derives
   conflicting verdicts at every threshold
   (`hybrid_bound_necessary`).
+- **Resilient checkpoints** (`LeanDag/Hybrid/Checkpoint/`): explicit
+  epoch-, height-, and history-bearing proposal messages are
+  emitted from append-only per-validator protocol state. Forked
+  per-validator histories are execution inputs: this layer does not
+  derive an AbC fork from the DAG or compose with the DAG safety proofs.
+  `BaseSpec.lean` and `RecoverySpec.lean` are the human-review trust
+  boundary; theorem statements still require review, while the bodies
+  in `SafetyProofs.lean` and `RecoveryProofs.lean` are Lean-checked.
+  Conditional on those inputs, at
+  `fabc < n - 3·fb - 2·fc`, quorum intersection derives same-height
+  uniqueness and within-epoch prefix consistency; checkpoint safety is
+  intentionally scoped to one epoch. Concrete witness messages prove
+  that finality leaves a recovery-correct recorder. Recovery broadcasts
+  concrete checkpoint-certificate payloads carrying signer sets and
+  checkpoint content. An explicit local verifier checks the epoch,
+  quorum, and every authenticated proposal, with a soundness theorem
+  constructing a `CheckpointQC`; malformed broadcast inputs are not
+  channel-excluded. Finite highest-checkpoint selection handles the
+  empty case with the closing epoch's canonical execution genesis.
+  Submission and preservation are explicitly scoped to the closing
+  epoch, so retained older records do not make later recovery rounds
+  inconsistent. This recovers checkpoint history under explicit
+  submission, broadcast, validation, and adoption assumptions; it does
+  not recover the discarded DAG or restart consensus. The broadcast
+  algorithm and the paper's post-checkpoint VoteQC extension are not
+  formalized.
 - **Integration** (`LeanDag/Integration/`): the arcs are proved to
   **compose** — not by settling a quadratic matrix, but by naming the
   invariants each consumes and proving the two universe transformers
@@ -148,6 +175,170 @@ faults alone.
   implementation's slot blame. The arc is built under a
   statement/proof partition: definitions and statements are the audited
   surface, proofs are generated, and a checker enforces the split.
+- **Black Marlin** (`LeanDag/BlackMarlin/`): the three-round commit rule
+  of a partially synchronous protocol (DISC 2025) that uses neither
+  reliable broadcast nor a common coin and elects an anchor in **every
+  round**. Its own safety results hold at the core's committee
+  `n ≥ 3f+1`, and liveness above the same structural condition as the
+  rest of the development, from a run of **two** consecutive reliable
+  anchors. **Definition 1's Agreement and Total order do not.** At
+  `n = 4`, `f = 1` two reliable validators output different twins of an
+  equivocating anchor and neither ever outputs the other's; on the same
+  execution they order two *reliable* authors' twinless blocks
+  oppositely, which no rule for choosing among twins can repair. The
+  repair that restores both descends to a supported anchor, and no
+  validator can run it: deciding from its own view loses safety, waiting
+  for the evidence loses liveness. The arc is the second under the
+  statement/proof partition.
+
+
+- **Minnow** (`LeanDag/Minnow/`): `crs*`, the commit rule proposed as
+  *minimal* for eventual synchrony (arXiv:2608.18029), which decides a
+  leader slot from the round immediately above it — `2f+1` processes
+  pointing commits, `2f+1` not pointing skips. Two of its clauses are
+  written in a way their own sentences do not support, and both are
+  settled on data at four processes with `f = 1`. **Two defects survive
+  either reading.** A slot counts as *resolved* when some vertex of it
+  lies in a candidate's causal past, which is not that vertex being
+  decided: under equivocation one twin carries a later leader past the
+  slot while the other acquires its quorum, costing **Safe-Commit** —
+  and Lemma 10's own case split is where the paper's proof permits it.
+  The commit and skip thresholds then leave a gap no view ever decides,
+  costing **Live-Commit** for the rule paired with a multi-leader round
+  robin, though not for the rule alone.
+
+- **FinWhale** (`LeanDag/FinWhale/`): a fast path at a tunable committee
+  (arXiv:2606.26292), which commits a leader block **one round above
+  it** — `n − p` distinct validators referencing it — at
+  `n = 3f + 2p − 1`, `1 ≤ p ≤ f`, where `p` is not a second class of
+  fault but how many of the round's votes the path can do without. Its
+  safety rests on one statement: under such a commit **every** block two
+  rounds up is evidence for it, so no view can commit a conflicting
+  block, skip the slot, or reach a different verdict through an anchor. The committee is exactly the
+  least at which that closes — at one validator fewer the count falls
+  one short, for every `f` and `p` in range — which is a tightness
+  result the paper has and does not use, asserting optimality by
+  citation instead. Liveness is derived from the protocol's own
+  block-creation conditions C1, C2 and C3 rather than from reference
+  coverage, which a reactive builder does not have; the
+  two-message-delay latency of Definition 1, stated and not proved
+  there, is proved here. **Three further findings**: Lemma 22's proof
+  covers `p = 1` only, the C3 case of Lemmas 18 and 19 counts one
+  validator too many into a set and has no margin left at `p = 1` once
+  that is fixed, and Lemmas 6 and 7 are routed through a clause that a
+  validator which has not seen the committed block satisfies for
+  nothing. A `Run` bundles one execution and states what a validator
+  guarantees — agreement, total order, integrity, validity — with no
+  verdict assignment, view or well-formedness condition in the
+  statements. And a Mysticeti DAG under this development's
+  denial-of-service condition satisfies FinWhale's validity rule with
+  the self-parent edge included, so the whole arc applies to it
+  unchanged — on the reactive schedule such a universe is a run at every
+  horizon, and the condition provably never leaves a builder short of
+  authors it may cite.
+- **Barnacle** (`LeanDag/Barnacle/`): the adaptive **leader
+  count** — every few seconds, measure on the agreed DAG the fraction
+  of leader slots the base protocol decided directly and drive the
+  number of leaders per round with an additive-increase,
+  multiplicative-decrease rule — proved safe and live over an explicit
+  interface rendering the paper's assumptions A1–A4, and instantiated
+  on Mysticeti, Odontoceti and Nemo-Nemo. Safety is agreement of the
+  configuration sequence and of the ledger for **any** update rule,
+  under no synchrony or fairness hypothesis (`Agreement.holds`,
+  `Ledger.holds`): the algorithm decides under the count in force and
+  only then switches, so each configuration's verdicts are derivations
+  against one fixed schedule and no fixpoint is needed. There is no
+  total run — a finite universe closes finitely many configurations —
+  and the paper's sequence of configurations is what every prefix of it
+  agrees on. Liveness is Configuration Progress and runs of every
+  height under a horizon (`Progress.holds`), from a clause on a
+  schedule the paper assumes of its base protocols and that its own
+  rotation does not meet by this development's run-fairness route at
+  two leaders and four validators; it holds by a descent through the
+  *heads* of rounds and a pigeonhole on residues (`Heads.holds`), so
+  each rule is live under round-robin at **every** leader count — the
+  paper's A4 for its schedule, proved. Seven findings for the paper,
+  among them that its liveness clause needs a margin above the slot and
+  that Nemo-Nemo's slack is what a majority may miss, not the crash
+  bound. The arc is the third under the statement/proof partition.
+
+- **Hydrozoan** (`LeanDag/Hydrozoan/`): the dual-path commit rule of
+  the Hydrozoan paper under the hybrid fault model of DagHydrangea —
+  `n ≥ 3f + 2c + k + 1`, at most `f` Byzantine, at most `c` crashed,
+  `k` a tunable slack — which commits a leader in two message delays on
+  `n − p` votes, `p = ⌊(c + k)/2⌋`, or in three on `2f + c + 1`
+  certificates, skips it on `n − p` blames, and decides a slot none of
+  those settles from the nearest committed anchor by a graded rule
+  (certificate, weak quorum, skip). Safety is agreement of any two
+  verdicts across views and routes, from six threshold inequalities
+  that hold for every fault configuration the class admits — no cap on
+  the slack is needed, though the Hydrangea paper states one — and
+  prefix consistency of the committed sequences. Liveness above a
+  structural rendering of synchrony routes through the slow path, the
+  only one a quorum of correct replicas is sure to reach; the fast
+  path and the direct skip are stated as performance facts outside the
+  liveness claim, firing exactly when the actual faults fit `p`. The
+  hypotheses are grounded by exhibition: the wave-aligned rotation is
+  fair with no premise, where per-slot rotation is starved inside the
+  hybrid bound, and the synchrony package is realizable at every
+  horizon. Two findings for the paper: the anchor-sees-the-fast-footprint
+  row is consumed in a strengthened, non-Byzantine form, and a slot can
+  fast-commit while no certificate for it exists anywhere, so the
+  indirect rule's weak rung is necessary. The arc is the fourth under
+  the statement/proof partition, and the one that partition was
+  designed for; it is developed in
+  [`asonnino/mysticeti`](https://github.com/asonnino/mysticeti) beside
+  the reference implementation.
+
+- **Optimal-Hydrozoan** (`LeanDag/OptimalHydrozoan/`): the theory-only
+  variant of Hydrozoan whose fast path tolerates one more fault —
+  `pOpt = ⌊(c + k)/2⌋ + 1`, Hydrangea's lower bound on two-round
+  commits, at the same committee — by FinWhale's device: a decision-round
+  block that has seen the leader equivocate must not reference the
+  leader's block, and quorums of decision-round blocks that are
+  *fast evidence* for a candidate replace Hydrozoan's weak quorum of
+  votes, in the indirect rule's second rung and in the direct skip. The
+  seam consumes the validity rule exactly once, so the evidence rung is
+  unique with no tie-break and the statements need no order on ids.
+  Safety and liveness mirror Hydrozoan's; what the arc adds is that a
+  slot whose leader produced no candidate is skipped by the guaranteed
+  quorum alone — a liveness claim where Hydrozoan's skip is
+  opportunistic — and not otherwise, since with a candidate present
+  `f` Byzantine votes defeat the skip, FinWhale's attack on data. At
+  `k = 2f + c − 2` every fault fits the fast path at `n ≥ 5f + 3c − 1`.
+  A peer arc importing the Hydrozoan arc read-only, and the second
+  developed in `asonnino/mysticeti`.
+
+- **RedSnapper** (`LeanDag/RedSnapper/`): the owned-object fast path of
+  the RedSnapper paper ("Snapper"), at both of its committees, over an
+  uncertified DAG whose consensus is a black-box sequence of committed
+  anchors. Validators publish a *stance* per object version in the
+  blocks they already produce; transaction, skip and unlock
+  certificates are read from the DAG; at `n ≥ 3f + 1` the univalent
+  conflicts are decided from the DAG and the bivalent one at an anchor,
+  while at `n ≥ 5f + 1` a validator revokes an earlier vote on
+  `2f + 1` opposing stances, a common coin coordinates the moves, and a
+  freeze-and-count election at an anchor bounds the resolution. The
+  revocation arithmetic is stated once, protocol-independently, as the
+  seam both protocols consume: the threshold `n + f − C + 1`, tight for
+  `f ≤ C ≤ n`, is *exposed* by every quorum exactly when `n ≥ 5f + 1`.
+  Safety at `3f + 1` consumes only stance monotonicity, verdicts agree
+  across views and routes, and the liveness pair closes under the
+  structural synchrony. The `5f + 1` layer's headline is that its
+  safety needs no `5f + 1`: every certificate exclusion closes at
+  `n ≥ 3f + 1`, and the wide committee is consumed exactly where the
+  paper's own seam says — exposure, the frozen set's overlap with a
+  hidden commit, and the coin round's universal movability, each gate
+  refuted by witness at the small committee. The coin is modelled as
+  its output, with the success probability as a cardinality — at least
+  `2f + 1` good targets, fixed measurably before a post-round draw —
+  and the recovery election's min-hash tie-break is a linear-order
+  parameter that provably carries no safety weight. Twenty-one findings
+  for the paper, among them the corrected trichotomy of conflict
+  resolution, the algorithm-versus-lemma-text refutation form, and that
+  the literal `4f + 1` threshold hides an *upper* bound on `n` that
+  parameterising by `n − f` removes. The arc consumes nothing from the
+  core; its record is `docs/red-snapper.md`.
 
 Every definition is exercised on concrete models by `decide` before
 anything is proved from it, and every principal result depends on
@@ -162,6 +353,12 @@ lake build
 
 Requires [elan](https://github.com/leanprover/elan). The toolchain version
 is pinned in `lean-toolchain`; `lake build` will fetch it automatically.
+
+A `Makefile` splits the work by what it costs. `make fast` builds the
+library alone and runs the checks that cost nothing, which is the loop to
+work in; `make check` adds the concrete-model layer and is what a commit
+needs; `make deps` regenerates the dependency graph and is only needed when
+the set of declarations changes. `make help` lists them.
 
 ## Layout
 
@@ -178,8 +375,17 @@ is pinned in `lean-toolchain`; `lake build` will fetch it automatically.
   `Reactive/` — the reactive schedule; `SafeSkip/` — crash recovery in
   one message; `Adaptive/` — adaptive leader schedules; `Hybrid/` —
   Byzantine and crash faults apart; `Nemo/` — crash-fault consensus at
-  a majority quorum; `MahiMahi/` — the asynchronous rule at wave `w`,
-  under a statement/proof partition (`Model/`, `<Result>/Statement.lean`,
+  a majority quorum; `FinWhale/` — the fast path at
+  `n = 3f + 2p − 1`, whose `Model/` holds every definition of the
+  protocol and no proof; `MahiMahi/` — the asynchronous rule at wave `w`,
+  `BlackMarlin/` — the three-round rule with an anchor every round, and
+  `Barnacle/` — the adaptive leader count over an interface for the
+  three base rules, `Hydrozoan/` — the dual-path rule under hybrid
+  faults, with its own fault model and universe, and
+  `OptimalHydrozoan/` — its fast path at Hydrangea's bound, a peer arc
+  importing the first, and `RedSnapper/` — the owned-object fast path
+  at `3f + 1` and `5f + 1`, with its own model of stances over an
+  uncertified DAG, all under a statement/proof partition (`Model/`, `<Result>/Statement.lean`,
   `<Result>/Proof.lean`); `Network/` — the composed
   denial-of-service capstones; `Integration/` — how the arcs compose).
 - `LeanDag.lean` — root import file.
@@ -196,7 +402,7 @@ is pinned in `lean-toolchain`; `lake build` will fetch it automatically.
   appendices from it; `audit-report.py` checks the report's
   cross-references, its Lean identifiers, and every displayed statement
   verbatim against the compiled source. Regeneration is deterministic,
-  so regenerate-and-diff is the pre-merge check.
+  so regenerate-and-diff is the pre-merge check. `check-arc-holes.py` enforces the statement/proof partition of the arcs that adopt it, and `black-marlin-figure.py` draws the execution that refutes Agreement (`docs/figures/`).
 
 ## Documents
 
@@ -213,6 +419,13 @@ is pinned in `lean-toolchain`; `lake build` will fetch it automatically.
 | [`docs/odontoceti.md`](docs/odontoceti.md) | the two-round protocol: the generalized thresholds, and the findings |
 | [`docs/adaptive-leaders.md`](docs/adaptive-leaders.md) | adaptive leader schedules: the design record and theorem plan |
 | [`docs/hybrid-plan.md`](docs/hybrid-plan.md) | hybrid fault tolerance: the design record and theorem plan |
+| [`docs/mahi-mahi.md`](docs/mahi-mahi.md) | the asynchronous rule at wave `w`: the clause, and the statement/proof partition |
+| [`docs/black-marlin.md`](docs/black-marlin.md) | the three-round commit rule: the link clause, the run of two, what the reactive exit costs, agreement, the delivered order the descent computes, the sequence it outputs, where Agreement fails, and a repair |
+| [`docs/minnow.md`](docs/minnow.md) | the minimal commit rule: the two readings its own sentences force, and the two defects that survive both |
+| [`docs/finwhale.md`](docs/finwhale.md) | the fast path at `n = 3f + 2p − 1`: the committee and its tightness, the validity clause the fast path needs, liveness from the block-creation conditions, what a validator guarantees, and what the paper should change |
+| [`docs/barnacle.md`](docs/barnacle.md) | the adaptive leader count: the interface A1–A4, the configuration-sequence model and why it needs no fixpoint, the liveness clause and its margin, the heads descent, the three instantiations, and the findings |
+| [`docs/hydrozoan.md`](docs/hydrozoan.md) | the dual-path rule under hybrid faults: the thresholds and their table, the two-case consistency argument as one statement, the slow path as the guaranteed one, the liveness package and its grounding, and the findings |
+| [`docs/optimal-hydrozoan.md`](docs/optimal-hydrozoan.md) | the fast path at Hydrangea's bound: the validity rule and per-block fast evidence, the seam that consumes the rule once, the skip as a liveness claim and FinWhale's attack on it, and the always-fast parametrisation |
 | [`docs/integration.md`](docs/integration.md) | composing the arcs: the invariant interface, and what composition revealed |
 | [`docs/related.md`](docs/related.md) | a survey of consensus on uncertified DAGs |
 | [`docs/style.md`](docs/style.md) | writing conventions for the documents and the source |
@@ -224,7 +437,26 @@ is pinned in `lean-toolchain`; `lake build` will fetch it automatically.
   [#1](https://github.com/gdanezis/lean-dag/pull/1)): the majority-quorum
   foundation and its intersection lemma, the wave-two commit rule,
   agreement without side conditions, liveness at `n ≥ 2f+1`, and the
-  three-validator witness model.
+  three-validator witness model. He also contributed the wave-robin
+  schedule ([#3](https://github.com/gdanezis/lean-dag/pull/3)), the
+  Mahi-Mahi arc ([#5](https://github.com/gdanezis/lean-dag/pull/5)), the
+  Barnacle arc ([#7](https://github.com/gdanezis/lean-dag/pull/7)), and
+  the Hydrozoan arc (`LeanDag/Hydrozoan/`,
+  [#8](https://github.com/gdanezis/lean-dag/pull/8)): the dual-path commit rule
+  under hybrid faults, its safety from the threshold table alone and its
+  liveness through the slow path — and its Optimal variant
+  (`LeanDag/OptimalHydrozoan/`,
+  [#9](https://github.com/gdanezis/lean-dag/pull/9)), the fast path at
+  Hydrangea's bound.
+
+- [Lefteris Kokoris-Kogias](https://github.com/LefKok) — the resilient
+  checkpoint arc (`LeanDag/Hybrid/Checkpoint/`,
+  [#4](https://github.com/gdanezis/lean-dag/pull/4)): the
+  assume-guarantee model of epoch-bearing proposals over append-only
+  validator state, same-height uniqueness and within-epoch prefix
+  consistency from quorum intersection at
+  `fabc < n − 3·fb − 2·fc`, resilient finality, and highest-checkpoint
+  recovery with its local verifier and soundness theorem.
 
 ## License
 
