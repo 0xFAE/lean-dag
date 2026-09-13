@@ -12,14 +12,13 @@ the marker quorum is filled by `Correct` alone at any committee.
 
 * **The trigger exists**: an anchor seeing the conflict, in a universe
   where neither consensusless route ever fires — no full certificate
-  for any owned transaction on the object and no full unlock
-  certificate, the "not resolved consensuslessly" hypothesis, taken
-  globally — triggers; the least such index is the trigger index. The
-  global form is strictly stronger than the paper's temporal reading
-  (there certificate-absence is *derived* from the routes never
-  firing); the model has no route-fired event to condition on, and for
-  a termination lemma the stronger premise is the honest side to err
-  on.
+  for any candidate on the object and no full unlock certificate, the
+  "not resolved consensuslessly" hypothesis, taken globally — triggers;
+  the least such index is the trigger index. The global form is strictly
+  stronger than the paper's temporal reading (there certificate-absence
+  is *derived* from the routes never firing); the model has no
+  route-fired event to condition on, and for a termination lemma the
+  stronger premise is the honest side to err on.
 * **The resolution exists**: with the trigger at `i` and a later anchor
   seeing markers from every correct validator, some index in between
   (bounds included on the right) resolves — the first marker quorum.
@@ -28,11 +27,12 @@ the marker quorum is filled by `Correct` alone at any committee.
   commit"; without it the paper's one-shot clause (now exact, Phase 8)
   could refuse every index.
 * **The resolution decides**: at a resolving anchor, under any shared
-  linear order, every owned candidate of the object receives a verdict
-  — the `prio`-minimal eligible transaction is finalised and the rest
-  dropped, or, with nothing eligible, all are dropped. The minimal
-  element exists because eligible transactions are carried in the
-  anchor's finite history.
+  linear order, every candidate of the object receives a verdict — the
+  `prio`-minimal eligible transaction is finalised and the rest dropped,
+  or, with nothing eligible, all are dropped. Candidates include both
+  owned and mixed transactions that contend on the owned input. The
+  minimal element exists because eligible transactions are carried in
+  the anchor's finite history.
 -/
 
 namespace LeanDag
@@ -49,11 +49,11 @@ universe yields a trigger index at or below its own. -/
 def TriggerExists (U : Universe Validator BlockId Tx Obj) (A : Anchors U) : Prop :=
   ∀ (o : Obj) (i : ℕ) (a : BlockId),
     A.seq[i]? = some a →                  -- a committed anchor ...
-    (∃ tx tx', OwnedCandidate U a o tx ∧ OwnedCandidate U a o tx' ∧ tx ≠ tx') →
+    (∃ tx tx', IsCandidate U a o tx ∧ IsCandidate U a o tx' ∧ tx ≠ tx') →
                                           -- ... that sees the conflict, while
     (∀ C ∈ U.ids, ¬ IsFullUnlockCert U C o) →
                                           -- no full unlock certificate and
-    (∀ tx, Owned tx → T.input tx = o → ∀ C ∈ U.ids, ¬ IsFullCert U C tx) →
+    (∀ tx, T.input tx = o → ∀ C ∈ U.ids, ¬ IsFullCert U C tx) →
                                           -- no full certificate exists anywhere —
                                           -- neither consensusless route ever fires:
     ∃ i' ≤ i, TriggerAt U A o i'          -- then the trigger index exists, at or below
@@ -76,15 +76,15 @@ def ResolutionExists (U : Universe Validator BlockId Tx Obj) (A : Anchors U) : P
     ∃ j', i < j' ∧ j' ≤ j ∧ ResolvesFiveAt U A o i j'
                                           -- then some index in (i, j] resolves
 
-/-- **The resolution decides**: every owned candidate of the resolving
-anchor receives a verdict, in every view. -/
+/-- **The resolution decides**: every candidate of the resolving anchor
+receives a verdict, in every view. Candidates may be owned or mixed. -/
 def RecoveryDecides (U : Universe Validator BlockId Tx Obj) (A : Anchors U) : Prop :=
   ∀ (prio : Tx → Tx → Prop), IsLinearOrder Tx prio →
                                           -- the shared tie-break order (D8)
   ∀ (V : View U) (o : Obj) (i j : ℕ) (a : BlockId) (tx : Tx),
     ResolvesFiveAt U A o i j →            -- a resolution ...
     A.seq[j]? = some a →
-    OwnedCandidate U a o tx →             -- ... and any owned candidate it sees:
+    IsCandidate U a o tx →                -- ... and any candidate it sees:
     VerdictFive U A V prio tx Fate.finalized ∨ VerdictFive U A V prio tx Fate.dropped
                                           -- the candidate is decided, in every view
 

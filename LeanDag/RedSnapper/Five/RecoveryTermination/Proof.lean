@@ -32,8 +32,8 @@ theorem triggerExists : TriggerExists U A := by
     refine ⟨hconf, ?_, ?_⟩
     · rintro ⟨b, hb, -, hcert⟩
       exact hnounlock b hb hcert
-    · rintro ⟨tx, ⟨hown, hcand⟩, b, hb, -, hcert⟩
-      exact hnocert tx hown hcand.2.1 b hb hcert
+    · rintro ⟨tx, hcand, b, hb, -, hcert⟩
+      exact hnocert tx hcand.2.1 b hb hcert
   classical
   have hex : ∃ i', ∃ a', A.seq[i']? = some a' ∧ Triggers U a' o := ⟨i, a, hlk, htrig⟩
   refine ⟨Nat.find hex, Nat.find_min' hex ⟨a, hlk, htrig⟩,
@@ -64,7 +64,7 @@ omit [DecidableEq BlockId] in
 theorem recoveryDecides : RecoveryDecides U A := by
   intro prio hord V o i j a tx hres hla hcand
   classical
-  have ho : T.input tx = o := hcand.2.2.1
+  have ho : T.input tx = o := hcand.2.1
   subst ho
   obtain ⟨htrig, hij, ⟨aₖ, a', hlk, hla', hq⟩, hleast⟩ := hres
   rw [hla] at hla'
@@ -76,7 +76,7 @@ theorem recoveryDecides : RecoveryDecides U A := by
   · obtain ⟨tx₀, htx₀⟩ := helig
     have hmemE : ∀ tx', EligibleFive U aₖ a (T.input tx) tx' → tx' ∈ txsIn U a := by
       intro tx' h'
-      exact (mem_txsIn_iff ha).mpr h'.1.2.2.2
+      exact (mem_txsIn_iff ha).mpr h'.1.2.2
     have hE : ((txsIn U a).filter
         (fun tx' => EligibleFive U aₖ a (T.input tx) tx')).Nonempty :=
       ⟨tx₀, Finset.mem_filter.mpr ⟨hmemE tx₀ htx₀, htx₀⟩⟩

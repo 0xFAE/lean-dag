@@ -8,11 +8,11 @@ import LeanDag.RedSnapper.Five.FullCertSafety.Proof
 Generated proof layer; not part of the audit surface. Route-pair
 analysis, as in Theorem safety-5f: the certificate pairs close by RS6
 (`FullCertSafety.commitExcludesUnlock`, `fullCertUniqueness`); the
-certificate-versus-recovery pairs by RS7's reflection (the round
-condition of the paper's miscited step — finding 9 — never arises,
-because the reflection claim is round-unconditional); the
-recovery-versus-unlock pair by the `⊥` core against the winner's frozen
-supporters; the recovery pairs by resolution uniqueness and
+certificate and anchor-finalisation versus recovery pairs by RS7's
+reflection (the round condition of the paper's miscited step — finding
+9 — never arises, because the reflection claim is round-unconditional);
+the recovery-versus-unlock pair by the `⊥` core against the winner's
+frozen supporters; the recovery pairs by resolution uniqueness and
 antisymmetry.
 -/
 
@@ -37,7 +37,7 @@ private theorem no_unlock_of_eligible (hmove : MoveDiscipline U)
     (hfd : FreezeDiscipline U) {aₖ a : BlockId} {o : Obj} {tx : Tx} (ha : a ∈ U.ids)
     (helig : EligibleFive U aₖ a o tx) : ∀ C' ∈ U.ids, ¬ IsFullUnlockCert U C' o := by
   intro C' hC' hunlock
-  obtain ⟨⟨hown, hcand⟩, w, hw, hwcard⟩ := helig
+  obtain ⟨hcand, w, hw, hwcard⟩ := helig
   have hn := F.card_validators
   obtain ⟨S, hS, hk, hall, hex⟩ := correct_core_exists hC' hunlock
   have hρ : 0 < (U.block C').round := round_pos_of_atLeast hC' quorum_pos hunlock
@@ -97,11 +97,25 @@ private theorem fate_exclusive {V V' : View U} {prio : Tx → Tx → Prop}
             tx hcert hunlock
       | recoveryDropLoser hres hlk hla hcand helig' hmin' hne' =>
           obtain ⟨-, huniq⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
-            hown rfl ⟨_, V.subset_ids hC₁, hcert⟩
+            rfl ⟨_, V.subset_ids hC₁, hcert⟩
           exact hne' (huniq _ helig').symm
       | recoveryDropBot hres hlk hla hcand hempty =>
           obtain ⟨helig, -⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
-            hown rfl ⟨_, V.subset_ids hC₁, hcert⟩
+            rfl ⟨_, V.subset_ids hC₁, hcert⟩
+          exact hempty tx helig
+  | finalizeOnCommit hmix hi hcand hcert =>
+      obtain ⟨C₁, hC₁, hr₁, hfull₁⟩ := hcert
+      cases h₂ with
+      | fullUnlockDrop hC₂ hunlock hb hcand' =>
+          exact commitExcludesUnlock hmove C₁ hC₁ _ (V'.subset_ids hC₂)
+            tx hfull₁ hunlock
+      | recoveryDropLoser hres hlk hla hcand' helig' hmin' hne' =>
+          obtain ⟨-, huniq⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
+            rfl ⟨C₁, hC₁, hfull₁⟩
+          exact hne' (huniq _ helig').symm
+      | recoveryDropBot hres hlk hla hcand' hempty =>
+          obtain ⟨helig, -⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
+            rfl ⟨C₁, hC₁, hfull₁⟩
           exact hempty tx helig
   | recoveryFinal hres hlk hla helig hmin =>
       cases h₂ with
@@ -150,15 +164,38 @@ theorem noConflictingFinal {prio : Tx → Tx → Prop} (hord : IsLinearOrder Tx 
       | fullFinal hown' hC₂ hcert' =>
           exact fullCertUniqueness hmove _ (V.subset_ids hC₁) _ (V'.subset_ids hC₂)
             tx tx' hconf hcert hcert'
+      | finalizeOnCommit hmix' hi' hcand' hcert' =>
+          obtain ⟨C₂, hC₂, hr₂, hfull₂⟩ := hcert'
+          exact fullCertUniqueness hmove _ (V.subset_ids hC₁) C₂ hC₂
+            tx tx' hconf hcert hfull₂
       | recoveryFinal hres hlk hla helig hmin =>
           obtain ⟨-, huniq⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
-            hown hconf.2 ⟨_, V.subset_ids hC₁, hcert⟩
+            hconf.2 ⟨_, V.subset_ids hC₁, hcert⟩
+          exact hconf.1 (huniq _ helig).symm
+  | finalizeOnCommit hmix hi hcand hcert =>
+      obtain ⟨C₁, hC₁, hr₁, hfull₁⟩ := hcert
+      cases h₂ with
+      | fullFinal hown' hC₂ hcert' =>
+          exact fullCertUniqueness hmove C₁ hC₁ _ (V'.subset_ids hC₂)
+            tx tx' hconf hfull₁ hcert'
+      | finalizeOnCommit hmix' hi' hcand' hcert' =>
+          obtain ⟨C₂, hC₂, hr₂, hfull₂⟩ := hcert'
+          exact fullCertUniqueness hmove C₁ hC₁ C₂ hC₂
+            tx tx' hconf hfull₁ hfull₂
+      | recoveryFinal hres hlk hla helig hmin =>
+          obtain ⟨-, huniq⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
+            hconf.2 ⟨C₁, hC₁, hfull₁⟩
           exact hconf.1 (huniq _ helig).symm
   | recoveryFinal hres hlk hla helig hmin =>
       cases h₂ with
       | fullFinal hown' hC₂ hcert' =>
           obtain ⟨-, huniq⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
-            hown' hconf.2.symm ⟨_, V'.subset_ids hC₂, hcert'⟩
+            hconf.2.symm ⟨_, V'.subset_ids hC₂, hcert'⟩
+          exact hconf.1 (huniq _ helig)
+      | finalizeOnCommit hmix' hi' hcand' hcert' =>
+          obtain ⟨C₂, hC₂, hr₂, hfull₂⟩ := hcert'
+          obtain ⟨-, huniq⟩ := recoveryReflects_at hmove hfd hfive hres hlk hla
+            hconf.2.symm ⟨C₂, hC₂, hfull₂⟩
           exact hconf.1 (huniq _ helig)
       | recoveryFinal hres' hlk' hla' helig' hmin' =>
           rw [← hconf.2] at hres' helig' hmin'
