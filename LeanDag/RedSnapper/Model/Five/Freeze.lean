@@ -9,35 +9,37 @@ Trusted core: §8's fallback machinery (`Alg:FastPathPredicates5f+1`:
 `Triggers`, `TriggerAnchor`, `Frozen`, `Resolves`; `Alg:snapper5f`:
 `ResolveOnCommitObj`'s `F` and `W`) over the anchors of D4.
 
-The `5f+1` recovery works over the paper's `Candidates`, which carry
-the `IsOwned` gate (unlike §7's): `OwnedCandidate` restores it on top
-of the shared `IsCandidate`. An anchor *triggers* recovery for an
-object when it sees the object conflicted and neither a full
-certificate for a candidate nor a full unlock certificate anywhere in
-its history. The **trigger anchor** is the first committed anchor that
-triggers — the paper's recovery parameter `k` is fixed at `0`: it only
-delays the fallback, appears in no safety argument, and a general
-"`k`-th anchor satisfying a property" would put an exact count into the
-trusted core for nothing audited.
+The `5f+1` recovery works over the paper's `Candidates`. In the current
+protocol, both owned transactions and mixed transactions contend on their
+owned input, so recovery must not impose an additional `IsOwned` gate on
+candidates. The shared `IsCandidate` predicate already captures exactly the
+transaction set relevant to an owned object version in this model.
+
+An anchor *triggers* recovery for an object when it sees the object
+conflicted and neither a full certificate for a candidate nor a full unlock
+certificate anywhere in its history. The **trigger anchor** is the first
+committed anchor that triggers — the paper's recovery parameter `k` is fixed
+at `0`: it only delays the fallback, appears in no safety argument, and a
+general "`k`-th anchor satisfying a property" would put an exact count into
+the trusted core for nothing audited.
 
 A validator *freezes* by publishing a marker naming the trigger anchor
 (`Block.freezes`); `Frozen` reads markers from causal history. The
-**resolving anchor** is the first committed anchor after the trigger
-whose history carries markers from a quorum of validators — one-shot,
-by the least-index clause; the paper's defensive `Link(A_k, A)` test is
-implied by `Anchors.chained` and dropped. At the resolving anchor, a
-candidate is *eligible* — the paper's `W` — when `half` of the frozen
-validators stand at it. Validator-set thresholds use `AtLeastV`, the
-witness-set counting of `AtLeast` over validators, so the trusted core
-never decides `Frozen`.
+**resolving anchor** is the first committed anchor after the trigger whose
+history carries markers from a quorum of validators — one-shot, by the
+least-index clause; the paper's defensive `Link(A_k, A)` test is implied by
+`Anchors.chained` and dropped. At the resolving anchor, a candidate is
+*eligible* — the paper's `W` — when `half` of the frozen validators stand at
+it. Validator-set thresholds use `AtLeastV`, the witness-set counting of
+`AtLeast` over validators, so the trusted core never decides `Frozen`.
 
 `FreezeDiscipline` is the Phase 8 behavioural hypothesis on correct
 validators, alongside the untouched `MoveDiscipline`: a marker block
-declares its frozen value (phase 2 publishes it "one last time"); at or
-above an own marker the declaration never changes; and a declared ACK
-names a candidate of the declaring block — the `Adopt` guard "never
-adopt a candidate this block does not admit", which is what places a
-frozen transaction inside the resolving anchor's history.
+declares its frozen value (phase 2 publishes it "one last time"); at or above
+an own marker the declaration never changes; and a declared ACK names a
+candidate of the declaring block — the `Adopt` guard "never adopt a candidate
+this block does not admit", which is what places a frozen transaction inside
+the resolving anchor's history.
 -/
 
 namespace LeanDag
@@ -52,20 +54,16 @@ variable {Validator BlockId Tx Obj : Type*} [Fintype Validator] [DecidableEq Val
 def AtLeastV (k : ℕ) (P : Validator → Prop) : Prop :=
   ∃ t : Finset Validator, (∀ v ∈ t, P v) ∧ k ≤ t.card
 
-/-- `tx` is a candidate for `o` at `b` in the `5f+1` sense: a candidate
-that is owned — §8's `Candidates` carries the `IsOwned` gate. -/
-def OwnedCandidate (U : Universe Validator BlockId Tx Obj) (b : BlockId) (o : Obj)
-    (tx : Tx) : Prop :=
-  Owned tx ∧ IsCandidate U b o tx
-
 /-- `a` triggers recovery for `o` (the paper's `Triggers`): `a` sees two
-distinct owned candidates, and neither a full unlock certificate for `o`
-nor a full certificate for any owned candidate anywhere in its
-history. -/
+distinct candidates, and neither a full unlock certificate for `o` nor a
+full certificate for any candidate appears anywhere in its history.
+
+`IsCandidate` includes both owned and mixed transactions that contend on
+`o`; in particular, there is no additional `Owned` restriction here. -/
 def Triggers (U : Universe Validator BlockId Tx Obj) (a : BlockId) (o : Obj) : Prop :=
-  (∃ tx tx', OwnedCandidate U a o tx ∧ OwnedCandidate U a o tx' ∧ tx ≠ tx') ∧
+  (∃ tx tx', IsCandidate U a o tx ∧ IsCandidate U a o tx' ∧ tx ≠ tx') ∧
     (¬ ∃ b ∈ U.ids, Reaches U a b ∧ IsFullUnlockCert U b o) ∧
-    ¬ ∃ tx, OwnedCandidate U a o tx ∧ ∃ b ∈ U.ids, Reaches U a b ∧ IsFullCert U b tx
+    ¬ ∃ tx, IsCandidate U a o tx ∧ ∃ b ∈ U.ids, Reaches U a b ∧ IsFullCert U b tx
 
 /-- The trigger anchor sits at index `i` (the paper's `TriggerAnchor`
 at `k = 0`): the least committed index whose anchor triggers. -/
@@ -100,11 +98,11 @@ def ResolvesFiveAt (U : Universe Validator BlockId Tx Obj) (A : Anchors U) (o : 
       ¬ FreezeQuorum U aₖ o a
 
 /-- `tx` is eligible at the resolving anchor `a` under trigger `aₖ`
-(membership in the paper's `W`): an owned candidate of `a` at which
-`half` of the frozen validators stand. -/
+(membership in the paper's `W`): a candidate of `a` at which `half` of
+the frozen validators stand. Candidates here may be owned or mixed. -/
 def EligibleFive (U : Universe Validator BlockId Tx Obj) (aₖ a : BlockId) (o : Obj)
     (tx : Tx) : Prop :=
-  OwnedCandidate U a o tx ∧
+  IsCandidate U a o tx ∧
     AtLeastV (half Validator) fun id =>
       Frozen U aₖ id o a ∧ StanceIs U id o a (some (Stance.ack tx))
 

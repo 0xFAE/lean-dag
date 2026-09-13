@@ -35,12 +35,12 @@ supplies a fortiori.
 * **Resolution uniqueness**: at most one `(i, j)` resolves an object,
   and at most one eligible transaction is `prio`-minimal.
 * **Recovery reflects a hidden commit** (Lemma recovery-reflects): if
-  an owned transaction on the resolved object holds a full certificate
-  anywhere — at any round, before or after the resolution — then it is
-  eligible and uniquely so: `W = {tx}`.
+  a transaction on the resolved object — owned or mixed — holds a full
+  certificate anywhere, at any round, before or after the resolution,
+  then it is eligible and uniquely so: `W = {tx}`.
 * **Recovery safety, release** (Lemma recovery-safety, claim 1): if
-  nothing is eligible at the resolution, no owned transaction on the
-  object ever holds a full certificate.
+  nothing is eligible at the resolution, no transaction on the object
+  — owned or mixed — ever holds a full certificate.
 * **Recovery safety, winner** (Lemma recovery-safety, claim 2): a
   conflicting rival of any eligible transaction holds no full
   certificate above the resolving anchor's round.
@@ -75,18 +75,18 @@ covers every resolving anchor a fortiori. -/
 def RecoveryReflects (U : Universe Validator BlockId Tx Obj) : Prop :=
   ∀ (o : Obj) (aₖ a : BlockId) (tx : Tx),
     a ∈ U.ids → FreezeQuorum U aₖ o a →
-    Owned tx → T.input tx = o →
+    T.input tx = o →
     (∃ C ∈ U.ids, IsFullCert U C tx) →
     EligibleFive U aₖ a o tx ∧ ∀ tx', EligibleFive U aₖ a o tx' → tx' = tx
 
 /-- **Recovery safety, release**: an empty election at a marker quorum
-forbids a full certificate for any owned transaction on the object, at
-any round. -/
+forbids a full certificate for any transaction on the object, owned or
+mixed, at any round. -/
 def RecoverySafetyBot (U : Universe Validator BlockId Tx Obj) : Prop :=
   ∀ (o : Obj) (aₖ a : BlockId),
     a ∈ U.ids → FreezeQuorum U aₖ o a →
     (∀ tx, ¬ EligibleFive U aₖ a o tx) →
-    ∀ tx, Owned tx → T.input tx = o → ∀ C ∈ U.ids, ¬ IsFullCert U C tx
+    ∀ tx, T.input tx = o → ∀ C ∈ U.ids, ¬ IsFullCert U C tx
 
 /-- **Recovery safety, winner**: no rival of an eligible transaction
 reaches a full certificate above the electing block's round. Like the

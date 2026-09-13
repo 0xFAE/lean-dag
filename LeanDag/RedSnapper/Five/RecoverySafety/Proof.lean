@@ -49,7 +49,7 @@ theorem resolutionUnique {A : Anchors U} {prio : Tx → Tx → Prop}
 
 theorem recoveryReflects (hmove : MoveDiscipline U) (hfd : FreezeDiscipline U)
     (hfive : Five Validator) : RecoveryReflects U := by
-  intro o aₖ a tx ha hq hown hin ⟨C, hC, hfull⟩
+  intro o aₖ a tx ha hq hin ⟨C, hC, hfull⟩
   subst hin
   have hn := F.card_validators
   have h5 := hfive.card_validators
@@ -69,7 +69,7 @@ theorem recoveryReflects (hmove : MoveDiscipline U) (hfd : FreezeDiscipline U)
     omega)
   obtain ⟨v₀, hv₀⟩ := hne
   have helig : EligibleFive U aₖ a (T.input tx) tx := by
-    refine ⟨⟨hown, candidate_of_stance_ack hfd (hS (htS hv₀)) (hstance v₀ hv₀).2⟩,
+    refine ⟨candidate_of_stance_ack hfd (hS (htS hv₀)) (hstance v₀ hv₀).2,
       t, hstance, hhalf⟩
   refine ⟨helig, fun tx' he' => ?_⟩
   by_contra hne'
@@ -86,14 +86,14 @@ theorem recoveryReflects (hmove : MoveDiscipline U) (hfd : FreezeDiscipline U)
 
 theorem recoverySafetyBot (hmove : MoveDiscipline U) (hfd : FreezeDiscipline U)
     (hfive : Five Validator) : RecoverySafetyBot U := by
-  intro o aₖ a ha hq hempty tx hown hin C hC hfull
-  exact hempty tx (recoveryReflects hmove hfd hfive o aₖ a tx ha hq hown hin
+  intro o aₖ a ha hq hempty tx hin C hC hfull
+  exact hempty tx (recoveryReflects hmove hfd hfive o aₖ a tx ha hq hin
     ⟨C, hC, hfull⟩).1
 
 theorem recoverySafetyWin (hfd : FreezeDiscipline U) : RecoverySafetyWin U := by
   intro o aₖ a tx ha helig tx' hconf C hC hround hfull'
   have hn := F.card_validators
-  obtain ⟨⟨hown, hcand⟩, w, hw, hwcard⟩ := helig
+  obtain ⟨hcand, w, hw, hwcard⟩ := helig
   have ho : T.input tx = o := hcand.2.1
   subst ho
   -- the winner's correct supporters: at least f + 1, frozen at `ack tx`
@@ -153,14 +153,14 @@ theorem recoveryReflects_at {A : Anchors U} (hmove : MoveDiscipline U)
     (hfd : FreezeDiscipline U) (hfive : Five Validator) {o : Obj} {i j : ℕ}
     {aₖ a : BlockId} {tx : Tx} (hres : ResolvesFiveAt U A o i j)
     (hlk : A.seq[i]? = some aₖ) (hla : A.seq[j]? = some a)
-    (hown : Owned tx) (hin : T.input tx = o)
+    (hin : T.input tx = o)
     (hcert : ∃ C ∈ U.ids, IsFullCert U C tx) :
     EligibleFive U aₖ a o tx ∧ ∀ tx', EligibleFive U aₖ a o tx' → tx' = tx := by
   obtain ⟨aₖ', a', hlk', hla', hq⟩ := hres.2.2.1
   rw [hlk] at hlk'
   rw [hla] at hla'
   rw [← Option.some.inj hlk', ← Option.some.inj hla'] at hq
-  exact recoveryReflects hmove hfd hfive o aₖ a tx (anchor_mem hla) hq hown hin hcert
+  exact recoveryReflects hmove hfd hfive o aₖ a tx (anchor_mem hla) hq hin hcert
 
 theorem holds : Statement := by
   intro Validator BlockId Tx Obj _ _ _ _ U
